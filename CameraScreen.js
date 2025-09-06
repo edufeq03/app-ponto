@@ -28,6 +28,7 @@ export default function CameraScreen({ navigation }) {
    * @returns {object|null} A caixa delimitadora com originX, originY, width, height ou null se não for encontrada.
    */
   const findDocumentBoundingBox = async (base64Image) => {
+    console.log("DEBUG: Tentando encontrar a caixa delimitadora do documento...");
     try {
       // 1. Envia a imagem para a API Vision para detectar texto.
       const response = await axios.post(
@@ -96,6 +97,7 @@ export default function CameraScreen({ navigation }) {
    * @returns {string} O texto completo extraído ou uma mensagem de erro.
    */
   const analyzeImage = async (base64Image) => {
+    console.log("DEBUG: Enviando imagem para a API Vision...");
     try {
       const response = await axios.post(
         `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
@@ -108,7 +110,10 @@ export default function CameraScreen({ navigation }) {
       );
       const textFromImage = response.data.responses[0]?.fullTextAnnotation?.text;
       if (textFromImage) {
-        console.log("DEBUG: Texto extraído com sucesso.");
+        console.log("DEBUG: Texto extraído com sucesso. Conteúdo:");
+        console.log("--------------------");
+        console.log(textFromImage);
+        console.log("--------------------");
       } else {
         console.log("DEBUG: Não foi possível extrair o texto completo.");
       }
@@ -120,6 +125,7 @@ export default function CameraScreen({ navigation }) {
   };
 
   const extractDataFromText = (text) => {
+    console.log("DEBUG: Iniciando extração de dados...");
     const data = {};
     const nameRegex = /NOME\s+(.*)/i;
     const nameMatch = text.match(nameRegex);
@@ -142,11 +148,12 @@ export default function CameraScreen({ navigation }) {
     if (authCodeMatch) {
       data.authCode = authCodeMatch[1].trim();
     }
+    console.log("DEBUG: Dados extraídos:", data);
     return data;
   };
 
   const checkIfDuplicate = async (data) => {
-    console.log("Verificando duplicidade para:", data.name, data.date, data.time);
+    console.log("DEBUG: Verificando duplicidade para:", data.name, data.date, data.time);
     const pontosRef = collection(db, 'pontos');
     const q = query(
       pontosRef,
@@ -155,10 +162,13 @@ export default function CameraScreen({ navigation }) {
       where('time', '==', data.time)
     );
     const querySnapshot = await getDocs(q);
-    return !querySnapshot.empty;
+    const isDuplicate = !querySnapshot.empty;
+    console.log("DEBUG: Duplicidade verificada. É um duplicado?", isDuplicate);
+    return isDuplicate;
   };
 
   const uploadImage = async (uri) => {
+    console.log("DEBUG: Iniciando upload da imagem para o Firebase Storage...");
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
@@ -166,15 +176,16 @@ export default function CameraScreen({ navigation }) {
       const storageRef = ref(storage, filename);
       await uploadBytes(storageRef, blob);
       const downloadURL = await getDownloadURL(storageRef);
-      console.log("Imagem enviada para o Firebase Storage:", downloadURL);
+      console.log("DEBUG: Imagem enviada para o Firebase Storage:", downloadURL);
       return downloadURL;
     } catch (error) {
-      console.error("Erro ao enviar a imagem:", error);
+      console.error("ERRO: Falha ao enviar a imagem:", error);
       return null;
     }
   };
 
   const sendToFirestore = async (data, photoURL) => {
+    console.log("DEBUG: Enviando dados para o Firestore...");
     try {
       const pontosCollection = collection(db, 'pontos');
       const [day, month, year] = data.date.split('/').map(Number);
@@ -193,10 +204,10 @@ export default function CameraScreen({ navigation }) {
         workday_date: workdayDate.toLocaleDateString('pt-BR'),
         name_from_ocr: data.name,
       });
-      console.log("Dados enviados para o Firestore com sucesso!");
+      console.log("DEBUG: Dados enviados para o Firestore com sucesso!");
       return true;
     } catch (error) {
-      console.error("Erro ao enviar dados para o Firestore:", error);
+      console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
       return false;
     }
   };
@@ -228,7 +239,6 @@ export default function CameraScreen({ navigation }) {
       let imageUriToAnalyze = photo.uri;
       let base64ImageToAnalyze = photo.base64;
       
-      console.log("DEBUG: Tentando encontrar a caixa delimitadora...");
       const boundingBox = await findDocumentBoundingBox(photo.base64);
 
       if (boundingBox) {

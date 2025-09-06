@@ -3,23 +3,27 @@ import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Aler
 import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from './firebase_config';
 
-// Define a jornada de trabalho padrão (8 horas)
-const DAILY_WORK_HOURS = 8;
-const REQUIRED_DAILY_POINTS = 4; // Agora, exigimos 4 marcações por dia
+// Define a jornada de trabalho padrão (8 horas) e os limites dos breaks
+const DAILY_WORK_HOURS = 7;
+const REQUIRED_DAILY_POINTS = 4;
+const SHORT_BREAK_THRESHOLD_MINUTES = 50;
+const LONG_BREAK_THRESHOLD_MINUTES = 65;
 
-// Função utilitária para calcular a diferença de horas entre dois horários (formato HH:MM)
-const calculateHourDifference = (start, end) => {
-    const [startHour, startMinute] = start.split(':').map(Number);
-    const [endHour, endMinute] = end.split(':').map(Number);
-    const startDate = new Date(0, 0, 0, startHour, startMinute);
-    const endDate = new Date(0, 0, 0, endHour, endMinute);
-    let diff = endDate.getTime() - startDate.getTime();
+// Função utilitária para converter HH:MM em minutos totais
+const timeToMinutes = (time) => {
+    const [hours, minutes] = time.split(':').map(Number);
+    return hours * 60 + minutes;
+};
+
+// Função utilitária para calcular a diferença de tempo em minutos entre dois horários HH:MM
+const calculateMinuteDifference = (start, end) => {
+    const startMinutes = timeToMinutes(start);
+    const endMinutes = timeToMinutes(end);
+    let diff = endMinutes - startMinutes;
     if (diff < 0) { // Lida com o caso em que o ponto vira a noite
-        diff += 24 * 60 * 60 * 1000;
+        diff += 24 * 60;
     }
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    return { hours, minutes };
+    return diff;
 };
 
 // Formata minutos totais para o formato "Xh Ym"
@@ -42,10 +46,9 @@ export default function ReportScreen() {
             const q = query(pontosCollection);
             const querySnapshot = await getDocs(q);
             
-            // FILTRO DE SEGURANÇA: Garante que só vamos processar documentos completos
             const pointsList = querySnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
-                .filter(doc => doc.workday_date && doc.time); // **AQUI ESTÁ A CORREÇÃO**
+                .filter(doc => doc.workday_date && doc.time);
 
             pointsList.sort((a, b) => {
                 const dateA = new Date(a.workday_date.split('/').reverse().join('-') + 'T' + a.time);
@@ -83,18 +86,44 @@ export default function ReportScreen() {
         (dailyPoints) => dailyPoints.length < REQUIRED_DAILY_POINTS
     );
 
+    // Nova função para calcular a jornada diária e o status do break
+    const calculateDailySummary = (dailyPoints) => {
+        let totalDailyMinutes = 0;
+        let breakStatus = 'normal'; // Pode ser 'short' ou 'long'
+
+        if (dailyPoints.length >= REQUIRED_DAILY_POINTS) {
+            // As 4 marcações estão presentes
+            const firstIn = dailyPoints[0].time;
+            const breakOut = dailyPoints[1].time;
+            const breakIn = dailyPoints[2].time;
+            const lastOut = dailyPoints[3].time;
+
+            const workPart1 = calculateMinuteDifference(firstIn, breakOut);
+            const workPart2 = calculateMinuteDifference(breakIn, lastOut);
+            const breakDuration = calculateMinuteDifference(breakOut, breakIn);
+
+            totalDailyMinutes = workPart1 + workPart2;
+
+            if (breakDuration < SHORT_BREAK_THRESHOLD_MINUTES) {
+                breakStatus = 'short';
+            } else if (breakDuration > LONG_BREAK_THRESHOLD_MINUTES) {
+                breakStatus = 'long';
+                const extraBreakMinutes = breakDuration - LONG_BREAK_THRESHOLD_MINUTES;
+                totalDailyMinutes -= extraBreakMinutes; // Desconta do total
+            }
+        }
+        return { totalDailyMinutes, breakStatus };
+    };
+
     const calculateTimeBank = () => {
         let totalMinutesWorked = 0;
         let totalMinutesRequired = 0;
 
         Object.keys(groupedPoints).forEach(date => {
             const dailyPoints = groupedPoints[date];
-            // Apenas calcula a jornada para dias com os pontos completos
             if (dailyPoints.length >= REQUIRED_DAILY_POINTS) {
-                const firstPointTime = dailyPoints[0].time;
-                const lastPointTime = dailyPoints[dailyPoints.length - 1].time;
-                const { hours, minutes } = calculateHourDifference(firstPointTime, lastPointTime);
-                totalMinutesWorked += (hours * 60) + minutes;
+                const { totalDailyMinutes } = calculateDailySummary(dailyPoints);
+                totalMinutesWorked += totalDailyMinutes;
                 totalMinutesRequired += DAILY_WORK_HOURS * 60;
             }
         });
@@ -122,19 +151,22 @@ export default function ReportScreen() {
         
         const isComplete = dailyPoints.length >= REQUIRED_DAILY_POINTS;
         let dailyHoursText = "Dados Incompletos";
+        let statusStyle = styles.normalStatus;
         
         if (isComplete) {
-            const firstPointTime = dailyPoints[0].time;
-            const lastPointTime = dailyPoints[dailyPoints.length - 1].time;
-            const { hours, minutes } = calculateHourDifference(firstPointTime, lastPointTime);
-            const totalDailyMinutes = (hours * 60) + minutes;
+            const { totalDailyMinutes, breakStatus } = calculateDailySummary(dailyPoints);
             dailyHoursText = formatMinutesToHours(totalDailyMinutes);
+            if (breakStatus === 'short') {
+                statusStyle = styles.shortBreakStatus;
+            } else if (breakStatus === 'long') {
+                statusStyle = styles.longBreakStatus;
+            }
         }
 
         return (
             <View style={[styles.dayContainer, !isComplete && styles.incompleteDay]}>
                 <Text style={styles.dateHeader}>{date}</Text>
-                <Text style={styles.totalDailyHours}>Jornada: {dailyHoursText}</Text>
+                <Text style={[styles.totalDailyHours, statusStyle]}>Jornada: {dailyHoursText}</Text>
                 {dailyPoints.map((point, index) => (
                     <View key={index} style={styles.pointItem}>
                         <Text style={styles.pointTime}>{point.time}</Text>
@@ -152,7 +184,7 @@ export default function ReportScreen() {
                 <Text style={styles.summaryLabel}>Total de Horas</Text>
                 {daysWithIncompletePoints ? (
                     <Text style={styles.incompleteMessage}>
-                        É necessário registrar as 4 marcações ou justificar as faltas para visualizar seu banco de horas.
+                        É necessário registrar as 4 marcações para visualizar seu banco de horas.
                     </Text>
                 ) : (
                     <Text style={[styles.timeBankText, { color: timeBankColor }]}>{formattedTimeBank}</Text>
@@ -234,8 +266,17 @@ const styles = StyleSheet.create({
     },
     totalDailyHours: {
         fontSize: 14,
-        color: '#999',
+        fontWeight: 'bold',
         marginBottom: 10,
+    },
+    normalStatus: {
+        color: '#999',
+    },
+    shortBreakStatus: {
+        color: '#03A9F4', // Azul claro para aviso de break curto
+    },
+    longBreakStatus: {
+        color: '#F44336', // Vermelho para penalidade de break longo
     },
     pointItem: {
         flexDirection: 'row',

@@ -1,5 +1,3 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
 # dependencies
 node_modules/
 
@@ -35,3 +33,8 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Adicione esta seção para proteger arquivos com credenciais
+# Arquivos que contêm chaves de API, segredos e configurações sensíveis
+api_config.js
+firebase_config.js

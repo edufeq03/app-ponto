@@ -270,36 +270,37 @@ export default function CameraScreen({ navigation }) {
   }
 
   async function handleConfirmData() {
-    setIsSaving(true);
-    try {
-        if (!extractedData.date || !extractedData.time) {
-            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
-            setValidationModalVisible(false);
-            return;
-        }
-        const finalData = { ...extractedData };
-        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
-            finalData.editado = true;
-            finalData.data_original_ocr = originalExtractedData.date;
-            finalData.hora_original_ocr = originalExtractedData.time;
-        }
-        const isDuplicate = await checkIfDuplicate(finalData);
-        if (isDuplicate) {
-            Alert.alert("Aviso", "Este comprovante já foi registrado!");
-            setValidationModalVisible(false);
-            return;
-        }
-        const photoURL = await uploadImage(finalData.photoUri);
-        const success = await sendToFirestore(finalData, photoURL);
-        if (success) {
-          Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-        } else {
-          Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
-        }
-        setValidationModalVisible(false);
-    } finally {
-        setIsSaving(false);
-    }
+      setIsSaving(true);
+      try {
+          if (!extractedData.date || !extractedData.time) {
+              Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
+              setValidationModalVisible(false);
+              return;
+          }
+          const finalData = { ...extractedData };
+          if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
+              finalData.editado = true;
+              finalData.data_original_ocr = originalExtractedData.date;
+              finalData.hora_original_ocr = originalExtractedData.time;
+          }
+          const isDuplicate = await checkIfDuplicate(finalData);
+          if (isDuplicate) {
+              Alert.alert("Aviso", "Este comprovante já foi registrado!");
+              setValidationModalVisible(false);
+              setIsSaving(false); // Adicionado para reabilitar o botão
+              return; // <<-- CORREÇÃO CRÍTICA: Encerra a função aqui
+          }
+          const photoURL = await uploadImage(finalData.photoUri);
+          const success = await sendToFirestore(finalData, photoURL);
+          if (success) {
+            Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
+          } else {
+            Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
+          }
+          setValidationModalVisible(false);
+      } finally {
+          setIsSaving(false);
+      }
   }
 
   return (

@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
-import { StyleSheet, Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { StyleSheet, Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'; // Importar SaveFormat
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GOOGLE_CLOUD_VISION_API_KEY } from './api_config';
 import { db, storage } from './firebase_config';
 
@@ -19,43 +19,45 @@ export default function CameraScreen({ navigation }) {
   const [originalText, setOriginalText] = useState('');
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
+  const [processing, setProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Função para encontrar a caixa delimitadora do documento
+  /**
+   * Encontra a caixa delimitadora (bounding box) do texto na imagem usando a API Vision.
+   * @param {string} base64Image - A imagem em formato base64.
+   * @returns {object|null} A caixa delimitadora com originX, originY, width, height ou null se não for encontrada.
+   */
   const findDocumentBoundingBox = async (base64Image) => {
     try {
+      // 1. Envia a imagem para a API Vision para detectar texto.
       const response = await axios.post(
         `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
         {
-          requests: [
-            {
-              image: {
-                content: base64Image,
-              },
-              features: [
-                {
-                  type: 'TEXT_DETECTION', // Apenas para detectar texto e suas posições
-                },
-              ],
-            },
-          ],
+          requests: [{
+            image: { content: base64Image },
+            features: [{ type: 'TEXT_DETECTION' }],
+          }],
         }
       );
 
       const textAnnotations = response.data.responses[0]?.textAnnotations;
-      if (!textAnnotations || textAnnotations.length <= 1) { // textAnnotations[0] é o texto completo
-        console.log("Nenhum texto detectado para delimitar.");
-        return null; // Não foi possível detectar texto suficiente
+      
+      // 2. Verifica se algum texto foi detectado. O primeiro elemento é o texto completo.
+      if (!textAnnotations || textAnnotations.length <= 1) {
+        console.log("DEBUG: Nenhum texto detectado para delimitar o documento.");
+        return null;
       }
-
-      // Ignorar o primeiro elemento que contém todo o texto e focar nos blocos individuais
+      
+      // 3. Ignora o primeiro elemento e processa cada palavra para encontrar os limites.
       const words = textAnnotations.slice(1);
-
-      if (words.length === 0) return null;
-
+      
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let hasValidWord = false;
 
       words.forEach(word => {
+        // Verifica se a palavra tem as coordenadas válidas
         if (word.boundingPoly && word.boundingPoly.vertices) {
+          hasValidWord = true;
           word.boundingPoly.vertices.forEach(vertex => {
             minX = Math.min(minX, vertex.x);
             minY = Math.min(minY, vertex.y);
@@ -64,48 +66,55 @@ export default function CameraScreen({ navigation }) {
           });
         }
       });
+      
+      if (!hasValidWord) {
+        console.log("DEBUG: Nenhuma palavra com coordenadas válidas foi encontrada.");
+        return null;
+      }
 
-      // Adiciona uma margem para não cortar texto muito próximo às bordas
-      const margin = 20; // Pixels de margem
-      return {
+      // 4. Adiciona uma margem de segurança para garantir que o texto não seja cortado.
+      const margin = 20;
+      const boundingBox = {
         originX: Math.max(0, minX - margin),
         originY: Math.max(0, minY - margin),
         width: (maxX - minX) + (2 * margin),
         height: (maxY - minY) + (2 * margin),
       };
+      
+      console.log("DEBUG: Bounding box calculada com sucesso:", boundingBox);
+      return boundingBox;
 
     } catch (error) {
-      console.error('Erro ao detectar texto para bounding box:', error);
+      console.error('ERRO: Falha ao detectar texto para a caixa delimitadora:', error);
       return null;
     }
   };
 
+  /**
+   * Analisa a imagem para extrair todo o texto do documento.
+   * @param {string} base64Image - Imagem em base64.
+   * @returns {string} O texto completo extraído ou uma mensagem de erro.
+   */
   const analyzeImage = async (base64Image) => {
     try {
       const response = await axios.post(
         `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
         {
-          requests: [
-            {
-              image: {
-                content: base64Image,
-              },
-              features: [
-                {
-                  type: 'DOCUMENT_TEXT_DETECTION', // Usar DOCUMENT_TEXT_DETECTION para melhor OCR
-                },
-              ],
-            },
-          ],
+          requests: [{
+            image: { content: base64Image },
+            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+          }],
         }
       );
       const textFromImage = response.data.responses[0]?.fullTextAnnotation?.text;
-      if (!textFromImage) {
-        return "Não foi possível detectar texto. Por favor, tente novamente.";
+      if (textFromImage) {
+        console.log("DEBUG: Texto extraído com sucesso.");
+      } else {
+        console.log("DEBUG: Não foi possível extrair o texto completo.");
       }
-      return textFromImage;
+      return textFromImage || "Não foi possível detectar texto. Por favor, tente novamente.";
     } catch (error) {
-      console.error('Erro ao analisar a imagem:', error);
+      console.error('ERRO: Falha ao analisar a imagem:', error);
       return "Não foi possível detectar texto. Por favor, tente novamente.";
     }
   };
@@ -171,12 +180,10 @@ export default function CameraScreen({ navigation }) {
       const [day, month, year] = data.date.split('/').map(Number);
       const [hours, minutes] = data.time.split(':').map(Number);
       const pointDateTime = new Date(year, month - 1, day, hours, minutes);
-
       let workdayDate = new Date(pointDateTime);
       if (hours >= 0 && hours < 6) {
         workdayDate.setDate(workdayDate.getDate() - 1);
       }
-
       await addDoc(pontosCollection, {
         ...data,
         timestamp_salvo: new Date().toISOString(),
@@ -184,8 +191,8 @@ export default function CameraScreen({ navigation }) {
         url_foto: photoURL,
         origem: 'foto',
         workday_date: workdayDate.toLocaleDateString('pt-BR'),
+        name_from_ocr: data.name,
       });
-
       console.log("Dados enviados para o Firestore com sucesso!");
       return true;
     } catch (error) {
@@ -211,82 +218,78 @@ export default function CameraScreen({ navigation }) {
 
   async function handleTakePhoto() {
     if (cameraRef.current) {
+      setProcessing(true);
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
         base64: true,
         mute: true,
       });
-
       setCameraModalVisible(false);
-
       let imageUriToAnalyze = photo.uri;
       let base64ImageToAnalyze = photo.base64;
-
-      // Primeiro, tentar encontrar a bounding box do documento
+      
+      console.log("DEBUG: Tentando encontrar a caixa delimitadora...");
       const boundingBox = await findDocumentBoundingBox(photo.base64);
 
       if (boundingBox) {
-        console.log("Bounding box encontrada:", boundingBox);
-        const croppedImage = await manipulateAsync(
-          photo.uri,
-          [{
-            crop: {
-              originX: boundingBox.originX,
-              originY: boundingBox.originY,
-              width: boundingBox.width,
-              height: boundingBox.height,
-            }
-          }],
-          { compress: 1, format: SaveFormat.JPEG, base64: true } // Garantir que retorna base64
-        );
-        imageUriToAnalyze = croppedImage.uri;
-        base64ImageToAnalyze = croppedImage.base64; // Atualizar o base64 para a imagem recortada
-        console.log("Imagem recortada com sucesso.");
+        try {
+          console.log("DEBUG: Bounding box encontrada. Recortando imagem.");
+          const croppedImage = await manipulateAsync(
+            photo.uri,
+            [{ crop: boundingBox }],
+            { compress: 1, format: SaveFormat.JPEG, base64: true }
+          );
+          imageUriToAnalyze = croppedImage.uri;
+          base64ImageToAnalyze = croppedImage.base64;
+          console.log("DEBUG: Imagem recortada com sucesso.");
+        } catch (cropError) {
+          console.error("ERRO: Falha ao recortar a imagem. Usando a imagem original.", cropError);
+        }
       } else {
-        console.log("Não foi possível encontrar a bounding box, usando imagem original.");
+        console.log("DEBUG: Não foi possível encontrar a bounding box, usando imagem original.");
       }
-
+      
       const detectedText = await analyzeImage(base64ImageToAnalyze);
       const extracted = extractDataFromText(detectedText);
-
-      setExtractedData({ ...extracted, photoUri: imageUriToAnalyze }); // Salvar a URI da imagem (original ou recortada)
+      setExtractedData({ ...extracted, photoUri: imageUriToAnalyze });
       setOriginalExtractedData(extracted);
       setOriginalText(detectedText);
+      setProcessing(false);
       setValidationModalVisible(true);
     }
   }
 
   async function handleConfirmData() {
-    if (!extractedData.date || !extractedData.time) {
-        Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
+    setIsSaving(true);
+    try {
+        if (!extractedData.date || !extractedData.time) {
+            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
+            setValidationModalVisible(false);
+            return;
+        }
+        const finalData = { ...extractedData };
+        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
+            finalData.editado = true;
+            finalData.data_original_ocr = originalExtractedData.date;
+            finalData.hora_original_ocr = originalExtractedData.time;
+        }
+        const isDuplicate = await checkIfDuplicate(finalData);
+        if (isDuplicate) {
+            Alert.alert("Aviso", "Este comprovante já foi registrado!");
+            setValidationModalVisible(false);
+            return;
+        }
+        const photoURL = await uploadImage(finalData.photoUri);
+        const success = await sendToFirestore(finalData, photoURL);
+        if (success) {
+          Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
+        } else {
+          Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
+        }
         setValidationModalVisible(false);
-        return;
+    } finally {
+        setIsSaving(false);
     }
-
-    const finalData = { ...extractedData };
-    if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
-        finalData.editado = true;
-        finalData.data_original_ocr = originalExtractedData.date;
-        finalData.hora_original_ocr = originalExtractedData.time;
-    }
-
-    const isDuplicate = await checkIfDuplicate(finalData);
-    if (isDuplicate) {
-        Alert.alert("Aviso", "Este comprovante já foi registrado!");
-        setValidationModalVisible(false);
-        return;
-    }
-    
-    const photoURL = await uploadImage(finalData.photoUri);
-    const success = await sendToFirestore(finalData, photoURL);
-
-    if (success) {
-      Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-    } else {
-      Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
-    }
-    
-    setValidationModalVisible(false);
   }
 
   return (
@@ -334,7 +337,6 @@ export default function CameraScreen({ navigation }) {
                 editable={false}
               />
             </View>
-
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Data:</Text>
               <TextInput
@@ -343,7 +345,6 @@ export default function CameraScreen({ navigation }) {
                 value={extractedData.date}
               />
             </View>
-
             <View style={styles.formGroup}>
               <Text style={styles.formLabel}>Hora:</Text>
               <TextInput
@@ -352,15 +353,14 @@ export default function CameraScreen({ navigation }) {
                 value={extractedData.time}
               />
             </View>
-
             <Text style={styles.originalTextLabel}>Texto original do comprovante:</Text>
             <Text style={styles.originalText}>{originalText}</Text>
           </ScrollView>
-
           <View style={styles.modalFooter}>
             <Button
-              title="Confirmar"
+              title={isSaving ? "Salvando..." : "Confirmar"}
               onPress={handleConfirmData}
+              disabled={isSaving}
             />
             <Button
               title="Cancelar"
@@ -369,6 +369,16 @@ export default function CameraScreen({ navigation }) {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {processing && (
+        <Modal transparent={true} animationType="fade">
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Processando imagem...</Text>
+          </View>
+        </Modal>
+      )}
+
     </SafeAreaView>
   );
 }
@@ -455,5 +465,16 @@ const styles = StyleSheet.create({
     marginTop: 20,
     flexDirection: 'row',
     justifyContent: 'space-around',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: 'white',
+    fontSize: 16,
   },
 });

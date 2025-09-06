@@ -233,7 +233,7 @@ export default function CameraScreen({ navigation }) {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
         base64: true,
-        mute: true,
+        mute: true, // Garante que o som da foto seja desativado
       });
       setCameraModalVisible(false);
       let imageUriToAnalyze = photo.uri;
@@ -270,50 +270,50 @@ export default function CameraScreen({ navigation }) {
   }
 
   async function handleConfirmData() {
-      setIsSaving(true);
-      try {
-          if (!extractedData.date || !extractedData.time) {
-              Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
-              setValidationModalVisible(false);
-              return;
-          }
-          const finalData = { ...extractedData };
-          if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
-              finalData.editado = true;
-              finalData.data_original_ocr = originalExtractedData.date;
-              finalData.hora_original_ocr = originalExtractedData.time;
-          }
-          const isDuplicate = await checkIfDuplicate(finalData);
-          if (isDuplicate) {
-              Alert.alert("Aviso", "Este comprovante já foi registrado!");
-              setValidationModalVisible(false);
-              setIsSaving(false); // Adicionado para reabilitar o botão
-              return; // <<-- CORREÇÃO CRÍTICA: Encerra a função aqui
-          }
-          const photoURL = await uploadImage(finalData.photoUri);
-          const success = await sendToFirestore(finalData, photoURL);
-          if (success) {
-            Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-          } else {
-            Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
-          }
-          setValidationModalVisible(false);
-      } finally {
-          setIsSaving(false);
-      }
+    setIsSaving(true);
+    try {
+        if (!extractedData.date || !extractedData.time) {
+            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
+            setValidationModalVisible(false);
+            return;
+        }
+        const finalData = { ...extractedData };
+        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
+            finalData.editado = true;
+            finalData.data_original_ocr = originalExtractedData.date;
+            finalData.hora_original_ocr = originalExtractedData.time;
+        }
+        const isDuplicate = await checkIfDuplicate(finalData);
+        if (isDuplicate) {
+            Alert.alert("Aviso", "Este comprovante já foi registrado!");
+            setValidationModalVisible(false);
+            setIsSaving(false);
+            return;
+        }
+        const photoURL = await uploadImage(finalData.photoUri);
+        const success = await sendToFirestore(finalData, photoURL);
+        if (success) {
+          Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
+        } else {
+          Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
+        }
+        setValidationModalVisible(false);
+    } finally {
+        setIsSaving(false);
+    }
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainButtonsContainer}>
         <TouchableOpacity style={styles.actionButton} onPress={handleOpenCamera}>
-            <Text style={styles.actionButtonText}>Tirar Foto</Text>
+            <Text style={styles.actionButtonText}>Registrar meu ponto</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('ManualEntryScreen')}>
-            <Text style={styles.actionButtonText}>Registrar Manualmente</Text>
+            <Text style={styles.actionButtonText}>Registro Manual</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SummaryScreen')}>
-            <Text style={styles.actionButtonText}>Ver Resumo</Text>
+            <Text style={styles.actionButtonText}>Visualizar Marcações</Text>
         </TouchableOpacity>
       </View>
       <Modal visible={cameraModalVisible} style={{ flex: 1 }}>

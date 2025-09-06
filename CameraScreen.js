@@ -12,7 +12,8 @@ import { db, storage } from './firebase_config';
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
 // NO FUTURO: Este nome virá de um sistema de autenticação
-const CURRENT_USER_NAME = "MARIA SILVA";
+const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
+const RECEIPT_ASPECT_RATIO = 5.5 / 4; // 1.375 (horizontal)
 
 export default function CameraScreen({ navigation }) {
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
@@ -204,7 +205,7 @@ export default function CameraScreen({ navigation }) {
         origem: 'foto',
         workday_date: workdayDate.toLocaleDateString('pt-BR'),
         name_from_ocr: data.name,
-        justificativa_nome: justification, // Adiciona a justificativa, se existir
+        justificativa_nome: justification,
       });
       console.log("DEBUG: Dados enviados para o Firestore com sucesso!");
       return true;
@@ -238,7 +239,6 @@ export default function CameraScreen({ navigation }) {
             return;
         }
 
-        // Nova lógica de validação de nome
         if (finalData.name && finalData.name.trim().toUpperCase() !== CURRENT_USER_NAME.trim().toUpperCase()) {
             Alert.alert(
                 "Aviso de Nome Diferente",
@@ -258,7 +258,6 @@ export default function CameraScreen({ navigation }) {
             return;
         }
         
-        // Se o nome for igual ou não tiver nome extraído, prossegue para o salvamento
         await savePointAndImage(finalData);
 
     } finally {
@@ -278,7 +277,7 @@ export default function CameraScreen({ navigation }) {
       }
     } finally {
       setIsSaving(false);
-      setJustificationModalVisible(false); // Fecha o modal de justificativa
+      setJustificationModalVisible(false);
       setValidationModalVisible(false);
     }
   };
@@ -353,22 +352,25 @@ export default function CameraScreen({ navigation }) {
             <Text style={styles.actionButtonText}>Ver Resumo</Text>
         </TouchableOpacity>
       </View>
-
       <Modal visible={cameraModalVisible} style={{ flex: 1 }}>
         <CameraView
           style={{ flex: 1 }}
           facing="back"
           ref={cameraRef}
         />
-        <View style={styles.footer}>
-          <Button
-            title="Tirar Foto"
-            onPress={handleTakePhoto}
-          />
-          <Button
-            title="Cancelar"
-            onPress={() => setCameraModalVisible(false)}
-          />
+        {/* Estrutura para a moldura de enquadramento */}
+        <View style={styles.cameraFrameContainer}>
+          <View style={styles.horizontalFrame} />
+        </View>
+        <View style={styles.cameraControls}>
+          <TouchableOpacity style={styles.captureButton} onPress={handleTakePhoto}>
+            <View style={styles.captureButtonOuter}>
+              <View style={styles.captureButtonInner}></View>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => setCameraModalVisible(false)}>
+            <Text style={styles.cancelButtonText}>Cancelar</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
 
@@ -451,9 +453,13 @@ export default function CameraScreen({ navigation }) {
           </View>
         </Modal>
       )}
+
     </SafeAreaView>
   );
 }
+
+const frameWidth = windowWidth * 0.9;
+const frameHeight = frameWidth / RECEIPT_ASPECT_RATIO;
 
 const styles = StyleSheet.create({
   container: {
@@ -483,13 +489,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  footer: {
+  cameraControls: {
     position: "absolute",
-    bottom: 32,
-    left: 32,
-    right: 32,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+    bottom: 30,
+    width: '100%',
+    alignItems: 'center',
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButtonOuter: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 2,
+    borderColor: 'gray',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  captureButtonInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#fff',
+  },
+  cancelButton: {
+    marginTop: 20,
+  },
+  cancelButtonText: {
+    color: 'white',
+    fontSize: 16,
+  },
+  // ESTILOS PARA A MOLDURA DE ENQUADRAMENTO
+  cameraFrameContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  horizontalFrame: {
+    width: frameWidth,
+    height: frameHeight,
+    backgroundColor: 'transparent',
+    borderColor: 'white',
+    borderWidth: 2,
   },
   modalContainer: {
     flex: 1,

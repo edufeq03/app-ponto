@@ -3,7 +3,9 @@ import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Aler
 import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from './firebase_config';
 
-const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
+// Define a jornada de trabalho padrão (8 horas)
+const DAILY_WORK_HOURS = 8;
+const REQUIRED_DAILY_POINTS = 4; // Agora, exigimos 4 marcações por dia
 
 // Função utilitária para calcular a diferença de horas entre dois horários (formato HH:MM)
 const calculateHourDifference = (start, end) => {
@@ -20,23 +22,31 @@ const calculateHourDifference = (start, end) => {
     return { hours, minutes };
 };
 
+// Formata minutos totais para o formato "Xh Ym"
+const formatMinutesToHours = (totalMinutes) => {
+    const sign = totalMinutes >= 0 ? "" : "-";
+    const absMinutes = Math.abs(totalMinutes);
+    const hours = Math.floor(absMinutes / 60);
+    const minutes = absMinutes % 60;
+    return `${sign}${hours}h ${minutes}m`;
+};
+
 export default function ReportScreen() {
     const [points, setPoints] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // FUNÇÃO QUE BUSCA OS PONTOS DO FIRESTORE
     const fetchPoints = async () => {
         setLoading(true);
         try {
             const pontosCollection = collection(db, 'pontos');
             const q = query(pontosCollection);
             const querySnapshot = await getDocs(q);
-            const pointsList = querySnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-            }));
+            
+            // FILTRO DE SEGURANÇA: Garante que só vamos processar documentos completos
+            const pointsList = querySnapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(doc => doc.workday_date && doc.time); // **AQUI ESTÁ A CORREÇÃO**
 
-            // Organiza os pontos por data e hora
             pointsList.sort((a, b) => {
                 const dateA = new Date(a.workday_date.split('/').reverse().join('-') + 'T' + a.time);
                 const dateB = new Date(b.workday_date.split('/').reverse().join('-') + 'T' + b.time);
@@ -56,7 +66,6 @@ export default function ReportScreen() {
         fetchPoints();
     }, []);
 
-    // FUNÇÃO PARA AGRUPAR OS PONTOS POR DIA DE TRABALHO
     const groupPointsByWorkday = (points) => {
         const grouped = {};
         points.forEach(point => {
@@ -70,63 +79,60 @@ export default function ReportScreen() {
     };
 
     const groupedPoints = groupPointsByWorkday(points);
+    const daysWithIncompletePoints = Object.values(groupedPoints).some(
+        (dailyPoints) => dailyPoints.length < REQUIRED_DAILY_POINTS
+    );
 
-    // LÓGICA DO CÁLCULO DO BANCO DE HORAS
     const calculateTimeBank = () => {
-        const workdayHours = 8; // **IMPORTANTE: Precisamos de sua confirmação para este valor**
         let totalMinutesWorked = 0;
         let totalMinutesRequired = 0;
 
         Object.keys(groupedPoints).forEach(date => {
             const dailyPoints = groupedPoints[date];
-            if (dailyPoints.length >= 2) {
-                // Simplificação: Assume o primeiro e o último ponto como entrada e saída
+            // Apenas calcula a jornada para dias com os pontos completos
+            if (dailyPoints.length >= REQUIRED_DAILY_POINTS) {
                 const firstPointTime = dailyPoints[0].time;
                 const lastPointTime = dailyPoints[dailyPoints.length - 1].time;
                 const { hours, minutes } = calculateHourDifference(firstPointTime, lastPointTime);
-                totalMinutesWorked += hours * 60 + minutes;
+                totalMinutesWorked += (hours * 60) + minutes;
+                totalMinutesRequired += DAILY_WORK_HOURS * 60;
             }
-            totalMinutesRequired += workdayHours * 60;
         });
 
         const bankMinutes = totalMinutesWorked - totalMinutesRequired;
-        const sign = bankMinutes >= 0 ? "+" : "-";
-        const absBankMinutes = Math.abs(bankMinutes);
-        const bankHours = Math.floor(absBankMinutes / 60);
-        const bankMins = absBankMinutes % 60;
-
-        return `${sign}${bankHours}h ${bankMins}m`;
+        return bankMinutes;
     };
 
-    const timeBank = calculateTimeBank();
+    const timeBankInMinutes = calculateTimeBank();
+    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
+    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
 
     if (loading) {
         return (
-            <SafeAreaView style={styles.container}>
+            <SafeAreaView style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#007AFF" />
+                <Text style={styles.loadingText}>Carregando registros...</Text>
             </SafeAreaView>
         );
     }
 
-    // Exibe a lista de pontos agrupados por dia
     const renderItem = ({ item }) => {
         const date = item[0];
         const dailyPoints = item[1];
         
-        let totalDailyMinutes = 0;
-        if (dailyPoints.length >= 2) {
+        const isComplete = dailyPoints.length >= REQUIRED_DAILY_POINTS;
+        let dailyHoursText = "Dados Incompletos";
+        
+        if (isComplete) {
             const firstPointTime = dailyPoints[0].time;
             const lastPointTime = dailyPoints[dailyPoints.length - 1].time;
             const { hours, minutes } = calculateHourDifference(firstPointTime, lastPointTime);
-            totalDailyMinutes = hours * 60 + minutes;
+            const totalDailyMinutes = (hours * 60) + minutes;
+            dailyHoursText = formatMinutesToHours(totalDailyMinutes);
         }
 
-        const dailyHours = Math.floor(totalDailyMinutes / 60);
-        const dailyMinutes = totalDailyMinutes % 60;
-        const dailyHoursText = `${dailyHours}h ${dailyMinutes}m`;
-
         return (
-            <View style={styles.dayContainer}>
+            <View style={[styles.dayContainer, !isComplete && styles.incompleteDay]}>
                 <Text style={styles.dateHeader}>{date}</Text>
                 <Text style={styles.totalDailyHours}>Jornada: {dailyHoursText}</Text>
                 {dailyPoints.map((point, index) => (
@@ -141,10 +147,16 @@ export default function ReportScreen() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Text style={styles.screenTitle}>Resumo do Ponto</Text>
+            <Text style={styles.screenTitle}>Relatório do Banco de Horas</Text>
             <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>Banco de Horas:</Text>
-                <Text style={styles.timeBankText}>{timeBank}</Text>
+                <Text style={styles.summaryLabel}>Total de Horas</Text>
+                {daysWithIncompletePoints ? (
+                    <Text style={styles.incompleteMessage}>
+                        É necessário registrar as 4 marcações ou justificar as faltas para visualizar seu banco de horas.
+                    </Text>
+                ) : (
+                    <Text style={[styles.timeBankText, { color: timeBankColor }]}>{formattedTimeBank}</Text>
+                )}
             </View>
             <FlatList
                 data={Object.entries(groupedPoints)}
@@ -161,6 +173,16 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#f5f5f5',
         alignItems: 'center',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#666',
     },
     screenTitle: {
         fontSize: 24,
@@ -183,7 +205,12 @@ const styles = StyleSheet.create({
     timeBankText: {
         fontSize: 36,
         fontWeight: 'bold',
-        color: '#007AFF',
+    },
+    incompleteMessage: {
+        fontSize: 16,
+        textAlign: 'center',
+        color: '#FF9800', // Laranja para indicar que é um aviso/tarefa
+        fontWeight: 'bold',
     },
     list: {
         width: '100%',
@@ -195,6 +222,10 @@ const styles = StyleSheet.create({
         padding: 15,
         borderRadius: 10,
         elevation: 1,
+    },
+    incompleteDay: {
+        borderColor: '#FF9800',
+        borderWidth: 2,
     },
     dateHeader: {
         fontSize: 18,

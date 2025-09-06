@@ -12,7 +12,7 @@ import { db, storage } from './firebase_config';
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
 // NO FUTURO: Este nome virá de um sistema de autenticação
-const CURRENT_USER_NAME = "Maria TARGINE CAPELLA";
+const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
 const RECEIPT_ASPECT_RATIO = 5.5 / 4; // 1.375 (horizontal)
 
 export default function CameraScreen({ navigation }) {
@@ -306,6 +306,7 @@ export default function CameraScreen({ navigation }) {
         mute: true,
       });
       setCameraModalVisible(false);
+      
       let imageUriToAnalyze = photo.uri;
       let base64ImageToAnalyze = photo.base64;
       
@@ -350,6 +351,9 @@ export default function CameraScreen({ navigation }) {
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SummaryScreen')}>
             <Text style={styles.actionButtonText}>Ver Resumo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('ReportScreen')}>
+            <Text style={styles.actionButtonText}>Ver Relatório</Text>
         </TouchableOpacity>
       </View>
       <Modal visible={cameraModalVisible} style={{ flex: 1 }}>

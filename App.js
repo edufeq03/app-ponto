@@ -8,6 +8,7 @@ import CameraScreen from './CameraScreen';
 import HistoryScreen from './HistoryScreen';
 import ManualEntryScreen from './ManualEntryScreen';
 import SummaryScreen from './SummaryScreen';
+import ReportScreen from './ReportScreen';
 
 const Stack = createStackNavigator();
 
@@ -43,6 +44,11 @@ export default function App() {
           name="HistoryScreen"
           component={HistoryScreen}
           options={{ title: 'Histórico de Pontos' }}
+        />
+        <Stack.Screen
+          name="ReportScreen"
+          component={ReportScreen}
+          options={{ title: 'Relatório de Horas' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

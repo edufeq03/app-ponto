@@ -13,6 +13,46 @@ const SummaryScreen = () => {
         return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     };
 
+    /**
+     * Função auxiliar para renderizar uma célula da tabela com a lógica de estilo.
+     */
+    const renderTimeCell = (pointData) => {
+        if (!pointData) {
+            return <Text style={[styles.tableCell, styles.col]}>-</Text>;
+        }
+
+        const cellStyles = [styles.tableCell, styles.col];
+        const textStyles = [];
+
+        // Adiciona o estilo de fundo manual
+        if (pointData.origem === 'manual') {
+            cellStyles.push(styles.manualCell);
+        }
+
+        // Adiciona a cor de texto noturna
+        if (pointData.isOvernight) {
+            textStyles.push(styles.overnightCell);
+        }
+
+        // Adiciona a cor de texto editada
+        if (pointData.isEdited) {
+            textStyles.push(styles.editedCellText);
+        }
+        
+        // Adiciona a cor de texto da justificativa
+        if (pointData.hasJustification) {
+            textStyles.push(styles.justificationCellText);
+        }
+
+        const displayedTime = `${pointData.time}${pointData.hasJustification ? '*' : ''}`;
+
+        return (
+            <Text style={[...cellStyles, ...textStyles]}>
+                {displayedTime}
+            </Text>
+        );
+    };
+
     const processPoints = (points) => {
         const dailySummary = {};
         
@@ -134,18 +174,10 @@ const SummaryScreen = () => {
                     renderItem={({ item }) => (
                         <View style={styles.tableRow}>
                             <Text style={[styles.tableCell, styles.dateCol]}>{item.date}</Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.entrada1?.origem === 'manual' && styles.manualCell, item.times.entrada1?.isEdited && styles.editedCellText, item.times.entrada1?.isOvernight && styles.overnightCell]}>
-                                {item.times.entrada1?.time || '-'}{item.times.entrada1?.hasJustification && '*'}
-                            </Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.saida1?.origem === 'manual' && styles.manualCell, item.times.saida1?.isEdited && styles.editedCellText, item.times.saida1?.isOvernight && styles.overnightCell]}>
-                                {item.times.saida1?.time || '-'}{item.times.saida1?.hasJustification && '*'}
-                            </Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.entrada2?.origem === 'manual' && styles.manualCell, item.times.entrada2?.isEdited && styles.editedCellText, item.times.entrada2?.isOvernight && styles.overnightCell]}>
-                                {item.times.entrada2?.time || '-'}{item.times.entrada2?.hasJustification && '*'}
-                            </Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.saida2?.origem === 'manual' && styles.manualCell, item.times.saida2?.isEdited && styles.editedCellText, item.times.saida2?.isOvernight && styles.overnightCell]}>
-                                {item.times.saida2?.time || '-'}{item.times.saida2?.hasJustification && '*'}
-                            </Text>
+                            {renderTimeCell(item.times.entrada1)}
+                            {renderTimeCell(item.times.saida1)}
+                            {renderTimeCell(item.times.entrada2)}
+                            {renderTimeCell(item.times.saida2)}
                         </View>
                     )}
                 />
@@ -225,7 +257,7 @@ const styles = StyleSheet.create({
         borderColor: '#eee',
     },
     dateCol: {
-        flex: 2,
+        flex: 1.5,
     },
     col: {
         flex: 1,

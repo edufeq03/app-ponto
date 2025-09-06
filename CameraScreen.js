@@ -11,6 +11,9 @@ import { db, storage } from './firebase_config';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
+// NO FUTURO: Este nome virá de um sistema de autenticação
+const CURRENT_USER_NAME = "MARIA SILVA";
+
 export default function CameraScreen({ navigation }) {
   const [cameraModalVisible, setCameraModalVisible] = useState(false);
   const [validationModalVisible, setValidationModalVisible] = useState(false);
@@ -21,6 +24,9 @@ export default function CameraScreen({ navigation }) {
   const cameraRef = useRef(null);
   const [processing, setProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Novos estados para a validação de nome
+  const [justificationModalVisible, setJustificationModalVisible] = useState(false);
+  const [justification, setJustification] = useState('');
 
   /**
    * Encontra a caixa delimitadora (bounding box) do texto na imagem usando a API Vision.
@@ -30,7 +36,6 @@ export default function CameraScreen({ navigation }) {
   const findDocumentBoundingBox = async (base64Image) => {
     console.log("DEBUG: Tentando encontrar a caixa delimitadora do documento...");
     try {
-      // 1. Envia a imagem para a API Vision para detectar texto.
       const response = await axios.post(
         `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
         {
@@ -43,20 +48,17 @@ export default function CameraScreen({ navigation }) {
 
       const textAnnotations = response.data.responses[0]?.textAnnotations;
       
-      // 2. Verifica se algum texto foi detectado. O primeiro elemento é o texto completo.
       if (!textAnnotations || textAnnotations.length <= 1) {
         console.log("DEBUG: Nenhum texto detectado para delimitar o documento.");
         return null;
       }
       
-      // 3. Ignora o primeiro elemento e processa cada palavra para encontrar os limites.
       const words = textAnnotations.slice(1);
       
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       let hasValidWord = false;
 
       words.forEach(word => {
-        // Verifica se a palavra tem as coordenadas válidas
         if (word.boundingPoly && word.boundingPoly.vertices) {
           hasValidWord = true;
           word.boundingPoly.vertices.forEach(vertex => {
@@ -73,7 +75,6 @@ export default function CameraScreen({ navigation }) {
         return null;
       }
 
-      // 4. Adiciona uma margem de segurança para garantir que o texto não seja cortado.
       const margin = 20;
       const boundingBox = {
         originX: Math.max(0, minX - margin),
@@ -184,7 +185,7 @@ export default function CameraScreen({ navigation }) {
     }
   };
 
-  const sendToFirestore = async (data, photoURL) => {
+  const sendToFirestore = async (data, photoURL, justification = null) => {
     console.log("DEBUG: Enviando dados para o Firestore...");
     try {
       const pontosCollection = collection(db, 'pontos');
@@ -203,12 +204,82 @@ export default function CameraScreen({ navigation }) {
         origem: 'foto',
         workday_date: workdayDate.toLocaleDateString('pt-BR'),
         name_from_ocr: data.name,
+        justificativa_nome: justification, // Adiciona a justificativa, se existir
       });
       console.log("DEBUG: Dados enviados para o Firestore com sucesso!");
       return true;
     } catch (error) {
       console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
       return false;
+    }
+  };
+
+  async function handleConfirmData() {
+    setIsSaving(true);
+    try {
+        if (!extractedData.date || !extractedData.time) {
+            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
+            setValidationModalVisible(false);
+            return;
+        }
+
+        const finalData = { ...extractedData };
+        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
+            finalData.editado = true;
+            finalData.data_original_ocr = originalExtractedData.date;
+            finalData.hora_original_ocr = originalExtractedData.time;
+        }
+
+        const isDuplicate = await checkIfDuplicate(finalData);
+        if (isDuplicate) {
+            Alert.alert("Aviso", "Este comprovante já foi registrado!");
+            setValidationModalVisible(false);
+            setIsSaving(false);
+            return;
+        }
+
+        // Nova lógica de validação de nome
+        if (finalData.name && finalData.name.trim().toUpperCase() !== CURRENT_USER_NAME.trim().toUpperCase()) {
+            Alert.alert(
+                "Aviso de Nome Diferente",
+                `O nome extraído do comprovante (${finalData.name}) não corresponde ao seu nome de usuário (${CURRENT_USER_NAME}). Por favor, justifique a diferença.`,
+                [
+                    { text: "Cancelar", style: "cancel", onPress: () => {
+                        setIsSaving(false);
+                        setValidationModalVisible(false);
+                    }},
+                    { text: "Justificar", onPress: () => {
+                        setIsSaving(false);
+                        setValidationModalVisible(false);
+                        setJustificationModalVisible(true);
+                    }}
+                ]
+            );
+            return;
+        }
+        
+        // Se o nome for igual ou não tiver nome extraído, prossegue para o salvamento
+        await savePointAndImage(finalData);
+
+    } finally {
+        setIsSaving(false);
+    }
+  }
+
+  const savePointAndImage = async (data, justification = null) => {
+    setIsSaving(true);
+    try {
+      const photoURL = await uploadImage(data.photoUri);
+      const success = await sendToFirestore(data, photoURL, justification);
+      if (success) {
+        Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
+      } else {
+        Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
+      }
+    } finally {
+      setIsSaving(false);
+      setJustificationModalVisible(false); // Fecha o modal de justificativa
+      setValidationModalVisible(false);
     }
   };
 
@@ -233,7 +304,7 @@ export default function CameraScreen({ navigation }) {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
         base64: true,
-        mute: true, // Garante que o som da foto seja desativado
+        mute: true,
       });
       setCameraModalVisible(false);
       let imageUriToAnalyze = photo.uri;
@@ -269,40 +340,6 @@ export default function CameraScreen({ navigation }) {
     }
   }
 
-  async function handleConfirmData() {
-    setIsSaving(true);
-    try {
-        if (!extractedData.date || !extractedData.time) {
-            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
-            setValidationModalVisible(false);
-            return;
-        }
-        const finalData = { ...extractedData };
-        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
-            finalData.editado = true;
-            finalData.data_original_ocr = originalExtractedData.date;
-            finalData.hora_original_ocr = originalExtractedData.time;
-        }
-        const isDuplicate = await checkIfDuplicate(finalData);
-        if (isDuplicate) {
-            Alert.alert("Aviso", "Este comprovante já foi registrado!");
-            setValidationModalVisible(false);
-            setIsSaving(false);
-            return;
-        }
-        const photoURL = await uploadImage(finalData.photoUri);
-        const success = await sendToFirestore(finalData, photoURL);
-        if (success) {
-          Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-        } else {
-          Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
-        }
-        setValidationModalVisible(false);
-    } finally {
-        setIsSaving(false);
-    }
-  }
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.mainButtonsContainer}>
@@ -310,12 +347,13 @@ export default function CameraScreen({ navigation }) {
             <Text style={styles.actionButtonText}>Registrar meu ponto</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('ManualEntryScreen')}>
-            <Text style={styles.actionButtonText}>Registro Manual</Text>
+            <Text style={styles.actionButtonText}>Registrar Manualmente</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SummaryScreen')}>
-            <Text style={styles.actionButtonText}>Visualizar Marcações</Text>
+            <Text style={styles.actionButtonText}>Ver Resumo</Text>
         </TouchableOpacity>
       </View>
+
       <Modal visible={cameraModalVisible} style={{ flex: 1 }}>
         <CameraView
           style={{ flex: 1 }}
@@ -381,6 +419,30 @@ export default function CameraScreen({ navigation }) {
         </SafeAreaView>
       </Modal>
 
+      <Modal visible={justificationModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.justificationModalContainer}>
+          <View style={styles.justificationModalContent}>
+            <Text style={styles.justificationHeader}>Justifique a Diferença no Nome</Text>
+            <Text style={styles.justificationMessage}>O nome extraído não corresponde ao seu. Por favor, explique a razão da diferença.</Text>
+            <TextInput
+              style={styles.justificationInput}
+              onChangeText={setJustification}
+              value={justification}
+              multiline
+              placeholder="Ex: 'Comprovante em nome de outro funcionário', 'Erro de leitura do OCR', etc."
+            />
+            <View style={styles.justificationButtonContainer}>
+              <Button title="Cancelar" onPress={() => setJustificationModalVisible(false)} color="#666" />
+              <Button 
+                title="Confirmar" 
+                onPress={() => savePointAndImage(extractedData, justification)} 
+                disabled={isSaving || !justification} 
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {processing && (
         <Modal transparent={true} animationType="fade">
           <View style={styles.loadingOverlay}>
@@ -389,7 +451,6 @@ export default function CameraScreen({ navigation }) {
           </View>
         </Modal>
       )}
-
     </SafeAreaView>
   );
 }
@@ -487,5 +548,43 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: 'white',
     fontSize: 16,
+  },
+  justificationModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  justificationModalContent: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  justificationHeader: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  justificationMessage: {
+    fontSize: 16,
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  justificationInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 15,
+  },
+  justificationButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
   },
 });

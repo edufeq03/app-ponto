@@ -42,7 +42,8 @@ const SummaryScreen = () => {
                     time: formatTime(pointsForDay[0].timestamp_ponto),
                     origem: pointsForDay[0].origem,
                     isOvernight: pointsForDay[0].date !== pointsForDay[0].workday_date,
-                    isEdited: pointsForDay[0].editado
+                    isEdited: pointsForDay[0].editado,
+                    hasJustification: !!pointsForDay[0].justificativa_nome
                 };
             }
             if (pointsForDay[1]) {
@@ -50,7 +51,8 @@ const SummaryScreen = () => {
                     time: formatTime(pointsForDay[1].timestamp_ponto),
                     origem: pointsForDay[1].origem,
                     isOvernight: pointsForDay[1].date !== pointsForDay[1].workday_date,
-                    isEdited: pointsForDay[1].editado
+                    isEdited: pointsForDay[1].editado,
+                    hasJustification: !!pointsForDay[1].justificativa_nome
                 };
             }
             if (pointsForDay[2]) {
@@ -58,7 +60,8 @@ const SummaryScreen = () => {
                     time: formatTime(pointsForDay[2].timestamp_ponto),
                     origem: pointsForDay[2].origem,
                     isOvernight: pointsForDay[2].date !== pointsForDay[2].workday_date,
-                    isEdited: pointsForDay[2].editado
+                    isEdited: pointsForDay[2].editado,
+                    hasJustification: !!pointsForDay[2].justificativa_nome
                 };
             }
             if (pointsForDay[3]) {
@@ -66,7 +69,8 @@ const SummaryScreen = () => {
                     time: formatTime(pointsForDay[3].timestamp_ponto),
                     origem: pointsForDay[3].origem,
                     isOvernight: pointsForDay[3].date !== pointsForDay[3].workday_date,
-                    isEdited: pointsForDay[3].editado
+                    isEdited: pointsForDay[3].editado,
+                    hasJustification: !!pointsForDay[3].justificativa_nome
                 };
             }
 
@@ -113,7 +117,8 @@ const SummaryScreen = () => {
             <Text style={styles.legend}>
                 <Text style={styles.manualCellText}>Fundo amarelo:</Text> ponto inserido manualmente.{"\n"}
                 <Text style={styles.overnightCellText}>Texto azul:</Text> ponto noturno (após a meia-noite).{"\n"}
-                <Text style={styles.editedCellText}>Texto vermelho:</Text> ponto editado após a leitura da foto.
+                <Text style={styles.editedCellText}>Texto vermelho:</Text> ponto editado após a leitura da foto.{"\n"}
+                <Text style={styles.justificationCellText}>* Asterisco:</Text> nome justificado após erro de leitura.
             </Text>
             <View style={styles.table}>
                 <View style={styles.tableRowHeader}>
@@ -129,10 +134,18 @@ const SummaryScreen = () => {
                     renderItem={({ item }) => (
                         <View style={styles.tableRow}>
                             <Text style={[styles.tableCell, styles.dateCol]}>{item.date}</Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.entrada1?.origem === 'manual' && styles.manualCell, item.times.entrada1?.isEdited && styles.editedCellText, item.times.entrada1?.isOvernight && styles.overnightCell]}>{item.times.entrada1?.time || '-'}</Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.saida1?.origem === 'manual' && styles.manualCell, item.times.saida1?.isEdited && styles.editedCellText, item.times.saida1?.isOvernight && styles.overnightCell]}>{item.times.saida1?.time || '-'}</Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.entrada2?.origem === 'manual' && styles.manualCell, item.times.entrada2?.isEdited && styles.editedCellText, item.times.entrada2?.isOvernight && styles.overnightCell]}>{item.times.entrada2?.time || '-'}</Text>
-                            <Text style={[styles.tableCell, styles.col, item.times.saida2?.origem === 'manual' && styles.manualCell, item.times.saida2?.isEdited && styles.editedCellText, item.times.saida2?.isOvernight && styles.overnightCell]}>{item.times.saida2?.time || '-'}</Text>
+                            <Text style={[styles.tableCell, styles.col, item.times.entrada1?.origem === 'manual' && styles.manualCell, item.times.entrada1?.isEdited && styles.editedCellText, item.times.entrada1?.isOvernight && styles.overnightCell]}>
+                                {item.times.entrada1?.time || '-'}{item.times.entrada1?.hasJustification && '*'}
+                            </Text>
+                            <Text style={[styles.tableCell, styles.col, item.times.saida1?.origem === 'manual' && styles.manualCell, item.times.saida1?.isEdited && styles.editedCellText, item.times.saida1?.isOvernight && styles.overnightCell]}>
+                                {item.times.saida1?.time || '-'}{item.times.saida1?.hasJustification && '*'}
+                            </Text>
+                            <Text style={[styles.tableCell, styles.col, item.times.entrada2?.origem === 'manual' && styles.manualCell, item.times.entrada2?.isEdited && styles.editedCellText, item.times.entrada2?.isOvernight && styles.overnightCell]}>
+                                {item.times.entrada2?.time || '-'}{item.times.entrada2?.hasJustification && '*'}
+                            </Text>
+                            <Text style={[styles.tableCell, styles.col, item.times.saida2?.origem === 'manual' && styles.manualCell, item.times.saida2?.isEdited && styles.editedCellText, item.times.saida2?.isOvernight && styles.overnightCell]}>
+                                {item.times.saida2?.time || '-'}{item.times.saida2?.hasJustification && '*'}
+                            </Text>
                         </View>
                     )}
                 />
@@ -177,6 +190,10 @@ const styles = StyleSheet.create({
     editedCellText: {
         fontWeight: 'bold',
         color: 'red', // Vermelho para a legenda
+    },
+    justificationCellText: {
+        fontWeight: 'bold',
+        color: 'purple', // Novo para a legenda
     },
     table: {
         borderWidth: 1,

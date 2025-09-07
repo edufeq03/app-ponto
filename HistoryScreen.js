@@ -45,16 +45,13 @@ const HistoryScreen = ({ navigation }) => {
 
   useEffect(() => {
     const q = query(collection(db, 'pontos'), orderBy('timestamp_ponto', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedPoints = [];
-      querySnapshot.forEach((doc) => {
-        fetchedPoints.push({ id: doc.id, ...doc.data() });
-      });
-      setPoints(fetchedPoints);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao carregar pontos do Firestore:", error);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const pointsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp_ponto: new Date(doc.data().timestamp_ponto).toLocaleString('pt-BR')
+      }));
+      setPoints(pointsData);
       setLoading(false);
     });
 
@@ -63,71 +60,62 @@ const HistoryScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0000ff" />
-        <Text>Carregando histórico...</Text>
-      </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.container}>
       <Text style={styles.header}>Histórico de Pontos</Text>
-      {points.length === 0 ? (
-        <Text style={styles.noDataText}>Nenhum ponto registrado ainda.</Text>
-      ) : (
-        <FlatList
-          data={points}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.pointItem}>
-              <View style={styles.textContainer}>
-                {item.store && <Text style={styles.itemText}>Local: {item.store}</Text>}
-                {item.name && <Text style={styles.itemText}>Nome: {item.name}</Text>}
-                {item.date && item.time && <Text style={styles.itemText}>Data/Hora: {item.date} {item.time}</Text>}
-                {item.authCode && <Text style={styles.itemText}>PIS: {item.authCode}</Text>}
-                {item.justificativa && <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>}
-                <Text style={styles.timestampText}>Registrado em: {new Date(item.timestamp_salvo).toLocaleString()}</Text>
-              </View>
-              <View style={styles.actionsContainer}>
-                {item.url_foto && (
-                  <TouchableOpacity onPress={() => handleViewImage(item.url_foto)}>
-                      <Ionicons name="image-outline" size={24} color="#007AFF" />
-                  </TouchableOpacity>
-                )}
-                {item.origem === 'manual' && (
-                    <View style={styles.manualIcon}>
-                        <Ionicons name="create-outline" size={24} color="gray" />
-                    </View>
-                )}
-                <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-                    <Ionicons name="trash" size={24} color="red" />
-                </TouchableOpacity>
-              </View>
+      <FlatList
+        data={points}
+        keyExtractor={item => item.id}
+        renderItem={({ item }) => (
+          <View style={styles.pointItem}>
+            <View style={styles.textContainer}>
+              <Text style={styles.itemText}>Data: {item.timestamp_ponto.split(',')[0]}</Text>
+              <Text style={styles.itemText}>Hora: {item.timestamp_ponto.split(',')[1]}</Text>
+              <Text style={styles.itemText}>Origem: {item.origem}</Text>
+              {item.justificativa && (
+                <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
+              )}
             </View>
-          )}
-        />
-      )}
+            <View style={styles.actionsContainer}>
+              {item.image_url && (
+                <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
+                  <Ionicons name="image" size={24} color="#007AFF" />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+                <Ionicons name="trash" size={24} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        ListEmptyComponent={<Text style={styles.noDataText}>Nenhum ponto registrado.</Text>}
+      />
+      
       <Modal
-        animationType="slide"
-        transparent={true}
         visible={modalVisible}
-        onRequestClose={() => {
-          setModalVisible(!modalVisible);
-        }}
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalView}>
-          <Image
-            style={styles.fullImage}
-            source={{ uri: selectedImage }}
-            resizeMode="contain"
-          />
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setModalVisible(!modalVisible)}
-          >
-            <Ionicons name="close-circle" size={40} color="white" />
-          </TouchableOpacity>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Image
+              source={{ uri: selectedImage }}
+              style={styles.fullImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Ionicons name="close-circle" size={30} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -135,7 +123,7 @@ const HistoryScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
     paddingHorizontal: 20,
@@ -189,28 +177,25 @@ const styles = StyleSheet.create({
   actionsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 15,
   },
-  manualIcon: {
-    // Estilos para o ícone de edição (caneta) - pode deixar vazio ou adicionar mais se quiser
-  },
-  buttonContainer: {
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  modalView: {
+  modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+  },
+  modalContent: {
+    width: '90%',
+    height: '90%',
   },
   fullImage: {
     width: '100%',
-    height: '80%',
+    height: '100%',
   },
   closeButton: {
     position: 'absolute',
-    top: 50,
+    top: 20,
     right: 20,
   },
 });

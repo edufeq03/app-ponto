@@ -7,23 +7,24 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 
 // Importe todas as telas necessárias
 import HomeScreen from './HomeScreen';
-import RegisterScreen from './RegisterScreen'; // Tela de seleção para o registro
+import RegisterSelectionScreen from './RegisterSelectionScreen';
 import ManualEntryScreen from './ManualEntryScreen';
 import CameraScreen from './CameraScreen';
 import ReportScreen from './ReportScreen';
-import HistorySelectionScreen from './HistorySelectionScreen'; // Tela de seleção para o histórico
-import HistoryScreen from './HistoryScreen'; // Histórico de pontos individuais
-import SummaryScreen from './SummaryScreen'; // Resumo mensal
+import HistorySelectionScreen from './HistorySelectionScreen';
+import HistoryScreen from './HistoryScreen';
+import SummaryScreen from './SummaryScreen';
 
 const Tab = createBottomTabNavigator();
 const RegisterStack = createStackNavigator();
 const HistoryStack = createStackNavigator();
 
 // Stack Navigator para o menu "Registrar"
+// Ele gerencia a navegação entre a tela de seleção, a câmera e o registro manual.
 function RegisterStackScreen() {
   return (
     <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
-      <RegisterStack.Screen name="RegisterHome" component={RegisterScreen} />
+      <RegisterStack.Screen name="RegisterHome" component={RegisterSelectionScreen} />
       <RegisterStack.Screen name="ManualEntry" component={ManualEntryScreen} />
       <RegisterStack.Screen name="Tirar Foto" component={CameraScreen} />
     </RegisterStack.Navigator>
@@ -31,6 +32,7 @@ function RegisterStackScreen() {
 }
 
 // Stack Navigator para o menu "Histórico"
+// Ele gerencia a navegação entre a tela de seleção, o histórico individual e o resumo mensal.
 function HistoryStackScreen() {
   return (
     <HistoryStack.Navigator screenOptions={{ headerShown: false }}>

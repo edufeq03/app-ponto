@@ -65,11 +65,6 @@ export default function ReportScreen() {
     const [withdrawDate, setWithdrawDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
 
-    // Mova a lógica de cálculo para o início da função
-    const timeBankInMinutes = calculateTimeBank();
-    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
-    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
-
     const fetchPoints = async () => {
         setLoading(true);
         try {
@@ -80,6 +75,12 @@ export default function ReportScreen() {
             const pointsList = querySnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 .filter(doc => (doc.origem === 'saque' && doc.data_saque) || (doc.origem !== 'saque' && doc.workday_date && doc.time));
+
+            // DEBUGGING: Log de todos os pontos encontrados
+            console.log("------------------- DEBUGGING: Dados do Firebase -------------------");
+            console.log("Total de pontos encontrados:", pointsList.length);
+            console.log(pointsList);
+            console.log("----------------------------------------------------------------------");
 
             pointsList.sort((a, b) => {
                 const dateA = a.origem === 'saque' ? parseDate(a.data_saque) : parseDate(a.workday_date, a.time);
@@ -113,13 +114,23 @@ export default function ReportScreen() {
             }
             grouped[date].push(point);
         });
+        // DEBUGGING: Log dos pontos agrupados
+        console.log("------------------- DEBUGGING: Pontos Agrupados -------------------");
+        console.log(grouped);
+        console.log("----------------------------------------------------------------------");
         return grouped;
     };
 
     const groupedPoints = groupPointsByWorkday(points);
+    
+    // DEBUGGING: Verificação de dias com pontos incompletos
     const daysWithIncompletePoints = Object.values(groupedPoints).some(
         (dailyPoints) => dailyPoints.length >= 1 && dailyPoints.some(p => p.origem !== 'saque' && dailyPoints.filter(p => p.origem !== 'saque').length < REQUIRED_DAILY_POINTS)
     );
+    console.log("------------------- DEBUGGING: Resumo -------------------");
+    console.log("Dias com pontos incompletos:", daysWithIncompletePoints);
+    console.log("----------------------------------------------------------");
+
 
     const calculateDailySummary = (dailyPoints) => {
         let totalDailyMinutes = 0;
@@ -127,7 +138,7 @@ export default function ReportScreen() {
         let isSaque = false;
 
         const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
-        const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); // Mudança aqui
+        const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); 
 
         if (regularPoints.length >= REQUIRED_DAILY_POINTS) {
             const firstIn = regularPoints[0].time;
@@ -150,7 +161,7 @@ export default function ReportScreen() {
             }
         }
 
-        if (saquePoints.length > 0) { // Mudança aqui
+        if (saquePoints.length > 0) { 
             isSaque = true;
             saquePoints.forEach(saquePoint => {
                 totalDailyMinutes += saquePoint.minutos_saque;
@@ -178,8 +189,20 @@ export default function ReportScreen() {
         });
 
         const bankMinutes = totalMinutesWorked - totalMinutesRequired;
+        
+        // DEBUGGING: Log do cálculo final
+        console.log("------------------- DEBUGGING: Saldo do Banco -------------------");
+        console.log("Total de minutos trabalhados:", totalMinutesWorked);
+        console.log("Total de minutos necessários:", totalMinutesRequired);
+        console.log("Saldo final em minutos:", bankMinutes);
+        console.log("----------------------------------------------------------------------");
+
         return bankMinutes;
     };
+
+    const timeBankInMinutes = calculateTimeBank();
+    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
+    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
 
     const handleWithdraw = async () => {
         if (!hoursToWithdraw || !justification) {
@@ -239,7 +262,7 @@ export default function ReportScreen() {
         const isSaqueDay = dailyPoints.some(p => p.origem === 'saque');
 
         if (isSaqueDay) {
-            const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); // Mudança aqui
+            const saquePoints = dailyPoints.filter(p => p.origem === 'saque');
             const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
             const hasOtherEntries = regularPoints.length > 0;
 

@@ -344,17 +344,9 @@ export default function CameraScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       <View style={styles.mainButtonsContainer}>
         <TouchableOpacity style={styles.actionButton} onPress={handleOpenCamera}>
-            <Text style={styles.actionButtonText}>Registrar meu ponto</Text>
+            <Text style={styles.actionButtonText}>Tirar foto do comprovante</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('ManualEntryScreen')}>
-            <Text style={styles.actionButtonText}>Registrar Manualmente</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SummaryScreen')}>
-            <Text style={styles.actionButtonText}>Ver Resumo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('ReportScreen')}>
-            <Text style={styles.actionButtonText}>Ver Relatório</Text>
-        </TouchableOpacity>
+        <Text style={styles.infoText}>Use o menu abaixo para navegar entre as telas.</Text>
       </View>
       <Modal visible={cameraModalVisible} style={{ flex: 1 }}>
         <CameraView
@@ -492,6 +484,12 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  infoText: {
+    marginTop: 20,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   cameraControls: {
     position: "absolute",

@@ -65,6 +65,11 @@ export default function ReportScreen() {
     const [withdrawDate, setWithdrawDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
 
+    // Mova a lógica de cálculo para o início da função
+    const timeBankInMinutes = calculateTimeBank();
+    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
+    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
+
     const fetchPoints = async () => {
         setLoading(true);
         try {
@@ -218,10 +223,6 @@ export default function ReportScreen() {
             Alert.alert("Erro", "Falha ao registrar o saque. Tente novamente.");
         }
     };
-
-    const timeBankInMinutes = calculateTimeBank();
-    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
-    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
 
     if (loading) {
         return (
@@ -402,9 +403,9 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         marginBottom: 20,
         elevation: 2,
-        flexDirection: 'row', // **Ajuste para alinhar horizontalmente**
-        justifyContent: 'space-between', // **Ajuste para espaçar o conteúdo**
-        alignItems: 'center', // **Ajuste para alinhar verticalmente**
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     summaryContent: {
         alignItems: 'center',

@@ -1,56 +1,48 @@
 import 'react-native-gesture-handler';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { Button, Platform } from 'react-native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 
-import CameraScreen from './CameraScreen';
-import HistoryScreen from './HistoryScreen';
+// Importe as telas
+import HomeScreen from './HomeScreen';
 import ManualEntryScreen from './ManualEntryScreen';
-import SummaryScreen from './SummaryScreen';
+import CameraScreen from './CameraScreen';
 import ReportScreen from './ReportScreen';
 
-const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   return (
     <NavigationContainer>
-      <Stack.Navigator initialRouteName="CameraScreen">
-        <Stack.Screen 
-          name="CameraScreen" 
-          component={CameraScreen} 
-          options={{ title: 'Registro de Ponto' }} 
-        />
-        <Stack.Screen 
-          name="ManualEntryScreen" 
-          component={ManualEntryScreen} 
-          options={{ title: 'Registro Manual' }} 
-        />
-        <Stack.Screen 
-          name="SummaryScreen" 
-          component={SummaryScreen} 
-          options={({ navigation }) => ({
-            title: 'Resumo Mensal',
-            headerRight: () => (
-              <Button
-                onPress={() => navigation.navigate('HistoryScreen')}
-                title="Histórico"
-                color={Platform.OS === 'ios' ? '#007AFF' : '#000'} // Corrigido para preto em Android
-              />
-            ),
-          })}
-        />
-        <Stack.Screen
-          name="HistoryScreen"
-          component={HistoryScreen}
-          options={{ title: 'Histórico de Pontos' }}
-        />
-        <Stack.Screen
-          name="ReportScreen"
-          component={ReportScreen}
-          options={{ title: 'Relatório de Horas' }}
-        />
-      </Stack.Navigator>
+      <Tab.Navigator
+        initialRouteName="Home"
+        screenOptions={({ route }) => ({
+          tabBarIcon: ({ color, size }) => {
+            let iconName;
+
+            if (route.name === 'Home') {
+              iconName = 'home';
+            } else if (route.name === 'Registrar') {
+              iconName = 'edit';
+            } else if (route.name === 'Tirar Foto') {
+              iconName = 'camera-alt';
+            } else if (route.name === 'Relatório') {
+              iconName = 'bar-chart';
+            }
+
+            return <Icon name={iconName} size={size} color={color} />;
+          },
+          tabBarActiveTintColor: '#007AFF',
+          tabBarInactiveTintColor: 'gray',
+          headerShown: false,
+        })}
+      >
+        <Tab.Screen name="Home" component={HomeScreen} />
+        <Tab.Screen name="Registrar" component={ManualEntryScreen} />
+        <Tab.Screen name="Tirar Foto" component={CameraScreen} />
+        <Tab.Screen name="Relatório" component={ReportScreen} />
+      </Tab.Navigator>
     </NavigationContainer>
   );
 }

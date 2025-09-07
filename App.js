@@ -1,11 +1,12 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
-// Importe todas as telas necessárias
+// Importe as telas
 import HomeScreen from './HomeScreen';
 import RegisterSelectionScreen from './RegisterSelectionScreen';
 import ManualEntryScreen from './ManualEntryScreen';
@@ -14,13 +15,13 @@ import ReportScreen from './ReportScreen';
 import HistorySelectionScreen from './HistorySelectionScreen';
 import HistoryScreen from './HistoryScreen';
 import SummaryScreen from './SummaryScreen';
+import LoginScreen from './LoginScreen'; // Importe a nova tela de Login
+import { auth } from './firebase_config'; // Importe o serviço de autenticação
 
 const Tab = createBottomTabNavigator();
 const RegisterStack = createStackNavigator();
 const HistoryStack = createStackNavigator();
 
-// Stack Navigator para o menu "Registrar"
-// Ele gerencia a navegação entre a tela de seleção, a câmera e o registro manual.
 function RegisterStackScreen() {
   return (
     <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
@@ -31,8 +32,6 @@ function RegisterStackScreen() {
   );
 }
 
-// Stack Navigator para o menu "Histórico"
-// Ele gerencia a navegação entre a tela de seleção, o histórico individual e o resumo mensal.
 function HistoryStackScreen() {
   return (
     <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
@@ -43,7 +42,40 @@ function HistoryStackScreen() {
   );
 }
 
+// Este é o novo componente principal que gerencia o estado de autenticação
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Listener que verifica o estado de autenticação
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      setLoading(false);
+    });
+
+    // Função de limpeza para evitar vazamento de memória
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
+  // Se o usuário não estiver logado, mostre a tela de login
+  if (!user) {
+    return (
+      <NavigationContainer>
+        <LoginScreen />
+      </NavigationContainer>
+    );
+  }
+
+  // Se o usuário estiver logado, mostre a navegação principal
   return (
     <NavigationContainer>
       <Tab.Navigator
@@ -64,10 +96,16 @@ export default function App() {
           },
           tabBarActiveTintColor: '#007AFF',
           tabBarInactiveTintColor: 'gray',
-          headerShown: false,
+          headerShown: true, // Adiciona o cabeçalho para exibir o botão de Logout
         })}
       >
-        <Tab.Screen name="Início" component={HomeScreen} />
+        <Tab.Screen name="Início" component={HomeScreen} 
+          options={{
+            headerRight: () => (
+              <Button title="Logout" onPress={() => signOut(auth)} />
+            ),
+          }}
+        />
         <Tab.Screen name="Registrar" component={RegisterStackScreen} />
         <Tab.Screen name="Histórico" component={HistoryStackScreen} />
         <Tab.Screen name="Banco de Horas" component={ReportScreen} />

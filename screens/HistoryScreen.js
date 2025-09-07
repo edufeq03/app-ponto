@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal } from 'react-native';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
-import { db, auth } from './config/firebase_config'; // Importe 'auth'
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore'; // Adicionado 'where'
+import { db, auth } from '../config/firebase_config'; // Ajustado o caminho de importação e adicionado 'auth'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -10,6 +10,45 @@ const HistoryScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+
+  useEffect(() => {
+    // Acessa o usuário logado
+    const user = auth.currentUser;
+    if (!user) {
+      console.log("Nenhum usuário logado. Redirecionando para login.");
+      setLoading(false);
+      // Aqui você pode adicionar uma navegação para a tela de login se necessário
+      return;
+    }
+
+    const userId = user.uid;
+    
+    // Consulta otimizada para buscar apenas os pontos do usuário atual, ordenados por data
+    const pointsQuery = query(
+      collection(db, 'pontos'),
+      where('usuario_id', '==', userId), // Filtra por ID do usuário
+      orderBy('timestamp_ponto', 'desc')
+    );
+
+    // Usa onSnapshot para escutar em tempo real as mudanças no banco de dados
+    const unsubscribe = onSnapshot(pointsQuery, (snapshot) => {
+      const fetchedPoints = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Converte o timestamp do Firestore para um objeto Date
+        timestamp_ponto: doc.data().timestamp_ponto?.toDate()
+      }));
+      setPoints(fetchedPoints);
+      setLoading(false);
+    }, (error) => {
+      console.error("Erro ao buscar dados:", error);
+      setLoading(false);
+      Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
+    });
+
+    // Função de limpeza que é executada quando o componente é desmontado
+    return () => unsubscribe();
+  }, []); // A dependência vazia garante que o efeito rode apenas uma vez
 
   const handleDeletePoint = async (pointId) => {
     Alert.alert(
@@ -27,6 +66,7 @@ const HistoryScreen = ({ navigation }) => {
               const pointDoc = doc(db, 'pontos', pointId);
               await deleteDoc(pointDoc);
               console.log("Ponto excluído com sucesso!");
+              Alert.alert("Sucesso", "O registro de ponto foi excluído.");
             } catch (error) {
               console.error("Erro ao excluir o ponto:", error);
               Alert.alert("Erro", "Não foi possível excluir o ponto. Tente novamente.");
@@ -43,95 +83,68 @@ const HistoryScreen = ({ navigation }) => {
     setModalVisible(true);
   };
 
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-        setLoading(false);
-        setPoints([]);
-        Alert.alert("Aviso", "Usuário não autenticado. Nenhum histórico para exibir.");
-        return;
-    }
-    
-    // Altera a query para filtrar pelo UID do usuário logado
-    const q = query(
-      collection(db, 'pontos'),
-      where('usuario_id', '==', user.uid),
-      orderBy('timestamp_ponto', 'desc')
-    );
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const pointsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp_ponto: new Date(doc.data().timestamp_ponto).toLocaleString('pt-BR')
-      }));
-      setPoints(pointsData);
-      setLoading(false);
-    }, (error) => {
-        console.error("Erro ao carregar os dados:", error);
-        setLoading(false);
-        Alert.alert("Erro", "Não foi possível carregar o histórico de pontos.");
-    });
-
-    return () => unsubscribe();
-  }, []);
+  const renderItem = ({ item }) => (
+    <View style={styles.pointItem}>
+      <View style={styles.textContainer}>
+        <Text style={styles.itemText}>Origem: {item.origem === 'camera' ? 'Câmera' : 'Manual'}</Text>
+        <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
+        <Text style={styles.timestampText}>
+          {item.timestamp_ponto ? new Date(item.timestamp_ponto).toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 'Data inválida'}
+        </Text>
+      </View>
+      <View style={styles.actionsContainer}>
+        {item.image_url && (
+          <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
+            <Ionicons name="image-outline" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+          <Ionicons name="trash-outline" size={24} color="red" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>Histórico de Pontos</Text>
-      <FlatList
-        data={points}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.pointItem}>
-            <View style={styles.textContainer}>
-              <Text style={styles.itemText}>Data: {item.timestamp_ponto.split(',')[0]}</Text>
-              <Text style={styles.itemText}>Hora: {item.timestamp_ponto.split(',')[1]}</Text>
-              <Text style={styles.itemText}>Origem: {item.origem}</Text>
-              {item.justificativa && (
-                <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
-              )}
-            </View>
-            <View style={styles.actionsContainer}>
-              {item.image_url && (
-                <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
-                  <Ionicons name="image" size={24} color="#007AFF" />
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-                <Ionicons name="trash" size={24} color="#FF3B30" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-        ListEmptyComponent={<Text style={styles.noDataText}>Nenhum ponto registrado.</Text>}
-      />
-      
+      <Text style={styles.header}>Meu Histórico de Pontos</Text>
+      {points.length > 0 ? (
+        <FlatList
+          data={points}
+          renderItem={renderItem}
+          keyExtractor={item => item.id}
+        />
+      ) : (
+        <Text style={styles.noDataText}>Nenhum registro de ponto encontrado.</Text>
+      )}
+
+      {/* Modal para exibir a imagem */}
       <Modal
         visible={modalVisible}
         transparent={true}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Image
-              source={{ uri: selectedImage }}
-              style={styles.fullImage}
-              resizeMode="contain"
-            />
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <Ionicons name="close-circle" size={30} color="white" />
+            {selectedImage && (
+              <Image source={{ uri: selectedImage }} style={styles.fullImage} resizeMode="contain" />
+            )}
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Fechar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -195,26 +208,36 @@ const styles = StyleSheet.create({
   actionsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 15,
+    gap: 10,
+    marginLeft: 10,
   },
-  modalOverlay: {
+  // Estilos do Modal
+  modalContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContent: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
     width: '90%',
-    height: '90%',
+    alignItems: 'center',
   },
   fullImage: {
-    width: '100%',
-    height: '100%',
+    width: 300,
+    height: 400,
   },
   closeButton: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
+    marginTop: 20,
+    padding: 10,
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
+  },
+  closeButtonText: {
+    color: 'white',
+    fontSize: 16,
   },
 });
 

@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { collection, addDoc } from 'firebase/firestore';
-import { db, auth } from './config/firebase_config'; // Importe 'auth'
+import { db, auth } from '../config/firebase_config'; // Importe 'auth'
 
 const ManualEntryScreen = ({ navigation }) => {
     const [date, setDate] = useState(new Date());

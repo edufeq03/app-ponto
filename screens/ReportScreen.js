@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Alert, Modal, TextInput, Button, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { collection, query, getDocs, addDoc, where, orderBy } from 'firebase/firestore';
-import { db, auth } from './config/firebase_config'; // Importe 'auth'
+import { db, auth } from '../config/firebase_config'; // Importe 'auth'
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Define a jornada de trabalho padrão (8 horas) e os limites dos breaks

@@ -1,13 +1,12 @@
 // screens/CameraScreen.js
-import React, { useState, useRef } from 'react';
-import { Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Platform } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { auth } from '../config/firebase_config';
-import { processImage, checkIfDuplicate, savePointData } from '../services/cameraService.js';
+import { processImage, checkIfDuplicate, savePointData, findMostFrequentName } from '../services/cameraService.js';
 import styles from './CameraScreenStyles';
 
 export default function CameraScreen({ navigation }) {
@@ -27,21 +26,32 @@ export default function CameraScreen({ navigation }) {
     const [time, setTime] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
-    const [selectedJustification, setSelectedJustification] = useState('Inclusão automática');
+    const [selectedJustification, setSelectedJustification] = useState('Leitura incorreta do OCR');
     const [customJustification, setCustomJustification] = useState('');
 
+    const [mostFrequentName, setMostFrequentName] = useState(null);
+    const [isLoadingUserNames, setIsLoadingUserNames] = useState(true);
+
     const justificationOptions = [
-        'Inclusão automática',
         'Leitura incorreta do OCR',
+        'Nome de usuário diferente do registrado',
+        'Comprovante em nome de outro funcionário',
         'Outro (especificar)'
     ];
+    
+    // Agora o useEffect busca o nome mais frequente
+    useEffect(() => {
+        const fetchMostFrequentName = async () => {
+            const user = auth.currentUser;
+            if (user) {
+                const name = await findMostFrequentName(user.uid);
+                setMostFrequentName(name);
+            }
+            setIsLoadingUserNames(false);
+        };
+        fetchMostFrequentName();
+    }, []);
 
-    // const CURRENT_USER_NAME = "NOME DO USUÁRIO TESTE";
-
-    const user = auth.currentUser;
-    const CURRENT_USER_NAME = user?.displayName || 'Nome não encontrado';
-
-    // Funções do DateTimePicker
     const onDateChange = (event, selectedDate) => {
         const currentDate = selectedDate || date;
         setShowDatePicker(Platform.OS === 'ios');
@@ -68,7 +78,6 @@ export default function CameraScreen({ navigation }) {
                 return;
             }
 
-            // Verifica se os dados foram editados
             if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
                 finalData.editado = true;
                 finalData.data_original_ocr = originalExtractedData.date;
@@ -84,11 +93,15 @@ export default function CameraScreen({ navigation }) {
                 setIsSaving(false);
                 return;
             }
+            
+            // Nova lógica de validação de nome
+            const normalizedOcrName = finalData.name ? finalData.name.trim().toUpperCase() : '';
+            const normalizedMostFrequentName = mostFrequentName ? mostFrequentName.trim().toUpperCase() : null;
 
-            if (finalData.name && finalData.name.trim().toUpperCase() !== CURRENT_USER_NAME.trim().toUpperCase()) {
+            if (normalizedMostFrequentName && normalizedMostFrequentName !== normalizedOcrName) {
                 Alert.alert(
                     "Aviso de Nome Diferente",
-                    `O nome extraído do comprovante (${finalData.name}) não corresponde ao seu nome de usuário (${CURRENT_USER_NAME}). Por favor, justifique a diferença.`,
+                    `O nome extraído do comprovante (${finalData.name}) não corresponde ao seu nome de referência (${mostFrequentName}). Por favor, justifique a diferença.`,
                     [
                         { text: "Cancelar", style: "cancel", onPress: () => {
                             setIsSaving(false);
@@ -123,6 +136,12 @@ export default function CameraScreen({ navigation }) {
             setIsSaving(false);
             setJustificationModalVisible(false);
             setValidationModalVisible(false);
+            // Recalcula o nome mais frequente após salvar um novo registro
+            const user = auth.currentUser;
+            if (user) {
+                const name = await findMostFrequentName(user.uid);
+                setMostFrequentName(name);
+            }
         }
     };
 
@@ -156,11 +175,20 @@ export default function CameraScreen({ navigation }) {
             setExtractedData({ ...extracted, photoUri: photo.uri });
             setOriginalExtractedData(extracted);
             setOriginalText(detectedText);
-            setDate(new Date()); // Reseta a data para a atual
-            setTime(new Date()); // Reseta a hora para a atual
+            setDate(new Date()); 
+            setTime(new Date());
             setProcessing(false);
             setValidationModalVisible(true);
         }
+    }
+
+    if (isLoadingUserNames) {
+        return (
+            <SafeAreaView style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#007AFF" />
+                <Text>Calibrando nome do usuário...</Text>
+            </SafeAreaView>
+        );
     }
 
     return (
@@ -277,7 +305,7 @@ export default function CameraScreen({ navigation }) {
                 <View style={styles.justificationModalContainer}>
                     <View style={styles.justificationModalContent}>
                         <Text style={styles.justificationHeader}>Justifique a Diferença no Nome</Text>
-                        <Text style={styles.justificationMessage}>O nome extraído não corresponde ao seu. Por favor, explique a razão da diferença.</Text>
+                        <Text style={styles.justificationMessage}>O nome extraído não corresponde ao seu nome de referência. Por favor, explique a razão da diferença.</Text>
                         <TextInput
                             style={styles.justificationInput}
                             onChangeText={setJustification}

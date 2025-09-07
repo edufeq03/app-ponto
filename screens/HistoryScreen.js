@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal } from 'react-native';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore'; // Adicionado 'where'
-import { db, auth } from '../config/firebase_config'; // Ajustado o caminho de importação e adicionado 'auth'
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { db, auth } from '../config/firebase_config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -10,45 +10,14 @@ const HistoryScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+  
+  const isMounted = useRef(true);
 
   useEffect(() => {
-    // Acessa o usuário logado
-    const user = auth.currentUser;
-    if (!user) {
-      console.log("Nenhum usuário logado. Redirecionando para login.");
-      setLoading(false);
-      // Aqui você pode adicionar uma navegação para a tela de login se necessário
-      return;
-    }
-
-    const userId = user.uid;
-    
-    // Consulta otimizada para buscar apenas os pontos do usuário atual, ordenados por data
-    const pointsQuery = query(
-      collection(db, 'pontos'),
-      where('usuario_id', '==', userId), // Filtra por ID do usuário
-      orderBy('timestamp_ponto', 'desc')
-    );
-
-    // Usa onSnapshot para escutar em tempo real as mudanças no banco de dados
-    const unsubscribe = onSnapshot(pointsQuery, (snapshot) => {
-      const fetchedPoints = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        // Converte o timestamp do Firestore para um objeto Date
-        timestamp_ponto: doc.data().timestamp_ponto?.toDate()
-      }));
-      setPoints(fetchedPoints);
-      setLoading(false);
-    }, (error) => {
-      console.error("Erro ao buscar dados:", error);
-      setLoading(false);
-      Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
-    });
-
-    // Função de limpeza que é executada quando o componente é desmontado
-    return () => unsubscribe();
-  }, []); // A dependência vazia garante que o efeito rode apenas uma vez
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   const handleDeletePoint = async (pointId) => {
     Alert.alert(
@@ -65,7 +34,6 @@ const HistoryScreen = ({ navigation }) => {
             try {
               const pointDoc = doc(db, 'pontos', pointId);
               await deleteDoc(pointDoc);
-              console.log("Ponto excluído com sucesso!");
               Alert.alert("Sucesso", "O registro de ponto foi excluído.");
             } catch (error) {
               console.error("Erro ao excluir o ponto:", error);
@@ -83,33 +51,83 @@ const HistoryScreen = ({ navigation }) => {
     setModalVisible(true);
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.pointItem}>
-      <View style={styles.textContainer}>
-        <Text style={styles.itemText}>Origem: {item.origem === 'camera' ? 'Câmera' : 'Manual'}</Text>
-        <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
-        <Text style={styles.timestampText}>
-          {item.timestamp_ponto ? new Date(item.timestamp_ponto).toLocaleDateString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : 'Data inválida'}
-        </Text>
-      </View>
-      <View style={styles.actionsContainer}>
-        {item.image_url && (
-          <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
-            <Ionicons name="image-outline" size={24} color="#007AFF" />
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+      return;
+    }
+
+    const userId = user.uid;
+    
+    const pointsQuery = query(
+      collection(db, 'pontos'),
+      where('usuario_id', '==', userId),
+      orderBy('timestamp_ponto', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(pointsQuery, (snapshot) => {
+      if (!isMounted.current) return;
+
+      const fetchedPoints = snapshot.docs.map(doc => {
+        const data = doc.data();
+        let timestamp = null;
+        
+        if (data.timestamp_ponto && typeof data.timestamp_ponto.toDate === 'function') {
+          timestamp = data.timestamp_ponto.toDate();
+        } else {
+          console.warn(`[AVISO] Documento com ID ${doc.id} tem timestamp_ponto inválido. Valor:`, data.timestamp_ponto);
+        }
+
+        return {
+          id: doc.id,
+          ...data,
+          timestamp_ponto: timestamp
+        };
+      });
+      setPoints(fetchedPoints);
+      setLoading(false);
+    }, (error) => {
+      if (!isMounted.current) return;
+      console.error("Erro ao buscar dados:", error);
+      setLoading(false);
+      Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const renderItem = ({ item }) => {
+    return (
+      <View style={styles.pointItem}>
+        <View style={styles.textContainer}>
+          <Text style={styles.itemText}>Origem: {item.origem === 'camera' ? 'Câmera' : 'Manual'}</Text>
+          <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
+          <Text style={styles.timestampText}>
+            {item.timestamp_ponto ? new Date(item.timestamp_ponto).toLocaleDateString('pt-BR', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }) : 'Data inválida'}
+          </Text>
+        </View>
+        <View style={styles.actionsContainer}>
+          {item.image_url && (
+            <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
+              <Ionicons name="image-outline" size={24} color="#007AFF" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+            <Ionicons name="trash-outline" size={24} color="red" />
           </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-          <Ionicons name="trash-outline" size={24} color="red" />
-        </TouchableOpacity>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
@@ -132,7 +150,6 @@ const HistoryScreen = ({ navigation }) => {
         <Text style={styles.noDataText}>Nenhum registro de ponto encontrado.</Text>
       )}
 
-      {/* Modal para exibir a imagem */}
       <Modal
         visible={modalVisible}
         transparent={true}
@@ -211,7 +228,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginLeft: 10,
   },
-  // Estilos do Modal
   modalContainer: {
     flex: 1,
     justifyContent: 'center',

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Alert, Modal, TextInput, Button, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Alert, Modal, TextInput, Button, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { collection, query, getDocs, addDoc } from 'firebase/firestore';
 import { db } from './firebase_config';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Define a jornada de trabalho padrão (8 horas) e os limites dos breaks
 const DAILY_WORK_HOURS = 8;
@@ -15,6 +15,7 @@ const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
 
 // Função utilitária para converter HH:MM em minutos totais
 const timeToMinutes = (time) => {
+    if (!time) return 0;
     const [hours, minutes] = time.split(':').map(Number);
     return hours * 60 + minutes;
 };
@@ -24,7 +25,7 @@ const calculateMinuteDifference = (start, end) => {
     const startMinutes = timeToMinutes(start);
     const endMinutes = timeToMinutes(end);
     let diff = endMinutes - startMinutes;
-    if (diff < 0) { // Lida com o caso em que o ponto vira a noite
+    if (diff < 0) {
         diff += 24 * 60;
     }
     return diff;
@@ -39,12 +40,30 @@ const formatMinutesToHours = (totalMinutes) => {
     return `${sign}${hours}h ${minutes}m`;
 };
 
+// Função utilitária para criar um objeto Date a partir de DD/MM/AAAA e HH:MM
+const parseDate = (dateStr, timeStr = '00:00') => {
+    if (!dateStr) return null;
+    const [day, month, year] = dateStr.split('/').map(Number);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+};
+
+// Formata um objeto Date para DD/MM/AAAA
+const formatDate = (date) => {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+};
+
 export default function ReportScreen() {
     const [points, setPoints] = useState([]);
     const [loading, setLoading] = useState(true);
     const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
     const [hoursToWithdraw, setHoursToWithdraw] = useState('');
     const [justification, setJustification] = useState('');
+    const [withdrawDate, setWithdrawDate] = useState(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     const fetchPoints = async () => {
         setLoading(true);
@@ -52,24 +71,18 @@ export default function ReportScreen() {
             const pontosCollection = collection(db, 'pontos');
             const q = query(pontosCollection);
             const querySnapshot = await getDocs(q);
-            
+
             const pointsList = querySnapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
-                .filter(doc => doc.workday_date && doc.time || doc.origem === 'saque'); // Inclui saques no filtro
+                .filter(doc => (doc.origem === 'saque' && doc.data_saque) || (doc.origem !== 'saque' && doc.workday_date && doc.time));
 
             pointsList.sort((a, b) => {
-                let dateA, dateB;
-                if (a.workday_date) {
-                    dateA = new Date(a.workday_date.split('/').reverse().join('-') + 'T' + (a.time || '00:00'));
-                } else {
-                    dateA = new Date(a.timestamp_saque);
-                }
-                
-                if (b.workday_date) {
-                    dateB = new Date(b.workday_date.split('/').reverse().join('-') + 'T' + (b.time || '00:00'));
-                } else {
-                    dateB = new Date(b.timestamp_saque);
-                }
+                const dateA = a.origem === 'saque' ? parseDate(a.data_saque) : parseDate(a.workday_date, a.time);
+                const dateB = b.origem === 'saque' ? parseDate(b.data_saque) : parseDate(b.workday_date, b.time);
+
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1;
+                if (!dateB) return -1;
                 return dateA - dateB;
             });
 
@@ -89,7 +102,7 @@ export default function ReportScreen() {
     const groupPointsByWorkday = (points) => {
         const grouped = {};
         points.forEach(point => {
-            const date = point.workday_date || new Date(point.timestamp_saque).toLocaleDateString('pt-BR');
+            const date = point.workday_date || point.data_saque;
             if (!grouped[date]) {
                 grouped[date] = [];
             }
@@ -109,7 +122,7 @@ export default function ReportScreen() {
         let isSaque = false;
 
         const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
-        const saquePoint = dailyPoints.find(p => p.origem === 'saque');
+        const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); // Mudança aqui
 
         if (regularPoints.length >= REQUIRED_DAILY_POINTS) {
             const firstIn = regularPoints[0].time;
@@ -131,10 +144,12 @@ export default function ReportScreen() {
                 totalDailyMinutes -= extraBreakMinutes;
             }
         }
-        
-        if(saquePoint) {
+
+        if (saquePoints.length > 0) { // Mudança aqui
             isSaque = true;
-            totalDailyMinutes += saquePoint.minutos_saque;
+            saquePoints.forEach(saquePoint => {
+                totalDailyMinutes += saquePoint.minutos_saque;
+            });
         }
 
         return { totalDailyMinutes, breakStatus, isSaque };
@@ -151,7 +166,7 @@ export default function ReportScreen() {
             if (regularPoints.length >= REQUIRED_DAILY_POINTS || dailyPoints.some(p => p.origem === 'saque')) {
                 const { totalDailyMinutes, isSaque } = calculateDailySummary(dailyPoints);
                 totalMinutesWorked += totalDailyMinutes;
-                if (!isSaque) {
+                if (!isSaque || regularPoints.length > 0) {
                     totalMinutesRequired += DAILY_WORK_HOURS * 60;
                 }
             }
@@ -161,27 +176,32 @@ export default function ReportScreen() {
         return bankMinutes;
     };
 
-    const timeBankInMinutes = calculateTimeBank();
-    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
-    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
-
     const handleWithdraw = async () => {
         if (!hoursToWithdraw || !justification) {
             Alert.alert("Erro", "Por favor, preencha todos os campos.");
             return;
         }
-        
+
+        const inputDate = withdrawDate;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (inputDate > today) {
+            Alert.alert("Erro", "Não é possível sacar horas para uma data futura.");
+            return;
+        }
+
         const totalMinutes = parseInt(hoursToWithdraw, 10) * 60 * -1;
-        
+
         if (isNaN(totalMinutes)) {
             Alert.alert("Erro", "Formato de horas inválido.");
             return;
         }
-        
+
         try {
             await addDoc(collection(db, 'pontos'), {
                 name: CURRENT_USER_NAME,
-                workday_date: new Date().toLocaleDateString('pt-BR'),
+                data_saque: formatDate(inputDate),
                 justificativa_saque: justification,
                 minutos_saque: totalMinutes,
                 origem: 'saque',
@@ -190,13 +210,18 @@ export default function ReportScreen() {
             setWithdrawModalVisible(false);
             setHoursToWithdraw('');
             setJustification('');
+            setWithdrawDate(new Date());
             Alert.alert("Sucesso!", `Saque de ${hoursToWithdraw} horas registrado com sucesso.`);
-            fetchPoints(); // Recarrega a lista para mostrar a nova transação
+            fetchPoints();
         } catch (e) {
             console.error("Erro ao registrar o saque: ", e);
             Alert.alert("Erro", "Falha ao registrar o saque. Tente novamente.");
         }
     };
+
+    const timeBankInMinutes = calculateTimeBank();
+    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
+    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
 
     if (loading) {
         return (
@@ -210,17 +235,33 @@ export default function ReportScreen() {
     const renderItem = ({ item }) => {
         const date = item[0];
         const dailyPoints = item[1];
-        
         const isSaqueDay = dailyPoints.some(p => p.origem === 'saque');
-        
+
         if (isSaqueDay) {
-            const saquePoint = dailyPoints.find(p => p.origem === 'saque');
-            const totalSaque = formatMinutesToHours(saquePoint.minutos_saque);
+            const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); // Mudança aqui
+            const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
+            const hasOtherEntries = regularPoints.length > 0;
+
             return (
                 <View style={[styles.dayContainer, styles.saqueContainer]}>
                     <Text style={styles.dateHeader}>{date}</Text>
-                    <Text style={styles.saqueTotal}>Saque de Horas: {totalSaque}</Text>
-                    <Text style={styles.saqueJustificativa}>Motivo: {saquePoint.justificativa_saque}</Text>
+                    {saquePoints.map((saquePoint) => (
+                        <View key={saquePoint.id} style={styles.saqueItem}>
+                            <Text style={styles.saqueTotal}>Saque de Horas: {formatMinutesToHours(saquePoint.minutos_saque)}</Text>
+                            <Text style={styles.saqueJustificativa}>Motivo: {saquePoint.justificativa_saque}</Text>
+                        </View>
+                    ))}
+                    {hasOtherEntries && (
+                        <>
+                            <Text style={styles.dateHeader}>Jornada do dia:</Text>
+                            {regularPoints.map((point, index) => (
+                                <View key={index} style={styles.pointItem}>
+                                    <Text style={styles.pointTime}>{point.time}</Text>
+                                    <Text style={styles.pointDetail}>{point.origem === 'foto' ? 'Registro por foto' : 'Registro manual'}</Text>
+                                </View>
+                            ))}
+                        </>
+                    )}
                 </View>
             );
         }
@@ -228,7 +269,7 @@ export default function ReportScreen() {
         const isComplete = dailyPoints.length >= REQUIRED_DAILY_POINTS;
         let dailyHoursText = "Dados Incompletos";
         let statusStyle = styles.normalStatus;
-        
+
         if (isComplete) {
             const { totalDailyMinutes, breakStatus } = calculateDailySummary(dailyPoints);
             dailyHoursText = formatMinutesToHours(totalDailyMinutes);
@@ -257,14 +298,16 @@ export default function ReportScreen() {
         <SafeAreaView style={styles.container}>
             <Text style={styles.screenTitle}>Relatório do Banco de Horas</Text>
             <View style={styles.summaryBox}>
-                <Text style={styles.summaryLabel}>Total de Horas</Text>
-                {daysWithIncompletePoints ? (
-                    <Text style={styles.incompleteMessage}>
-                        É necessário registrar as 4 marcações para visualizar seu banco de horas.
-                    </Text>
-                ) : (
-                    <Text style={[styles.timeBankText, { color: timeBankColor }]}>{formattedTimeBank}</Text>
-                )}
+                <View style={styles.summaryContent}>
+                    <Text style={styles.summaryLabel}>Total de Horas</Text>
+                    {daysWithIncompletePoints ? (
+                        <Text style={styles.incompleteMessage}>
+                            É necessário registrar as 4 marcações para visualizar seu banco de horas.
+                        </Text>
+                    ) : (
+                        <Text style={[styles.timeBankText, { color: timeBankColor }]}>{formattedTimeBank}</Text>
+                    )}
+                </View>
                 <TouchableOpacity style={styles.withdrawButton} onPress={() => setWithdrawModalVisible(true)}>
                     <Text style={styles.withdrawButtonText}>Sacar Horas</Text>
                 </TouchableOpacity>
@@ -285,6 +328,27 @@ export default function ReportScreen() {
                 <View style={styles.modalContainer}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Registrar Saque de Horas</Text>
+
+                        <Text style={styles.formLabel}>Data do Saque:</Text>
+                        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateInputButton}>
+                            <Text style={styles.dateInputText}>{formatDate(withdrawDate)}</Text>
+                        </TouchableOpacity>
+                        
+                        {showDatePicker && (
+                            <DateTimePicker
+                                testID="dateTimePicker"
+                                value={withdrawDate}
+                                mode="date"
+                                display="default"
+                                onChange={(event, selectedDate) => {
+                                    setShowDatePicker(Platform.OS === 'ios');
+                                    if (selectedDate) {
+                                        setWithdrawDate(selectedDate);
+                                    }
+                                }}
+                            />
+                        )}
+
                         <TextInput
                             style={styles.input}
                             placeholder="Horas a Sacar (ex: 2)"
@@ -314,7 +378,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
-        alignItems: 'center',
     },
     loadingContainer: {
         flex: 1,
@@ -330,15 +393,22 @@ const styles = StyleSheet.create({
         fontSize: 24,
         fontWeight: 'bold',
         marginVertical: 20,
+        textAlign: 'center',
     },
     summaryBox: {
         width: '90%',
         backgroundColor: '#fff',
         padding: 20,
         borderRadius: 10,
-        alignItems: 'center',
         marginBottom: 20,
         elevation: 2,
+        flexDirection: 'row', // **Ajuste para alinhar horizontalmente**
+        justifyContent: 'space-between', // **Ajuste para espaçar o conteúdo**
+        alignItems: 'center', // **Ajuste para alinhar verticalmente**
+    },
+    summaryContent: {
+        alignItems: 'center',
+        flex: 1,
     },
     summaryLabel: {
         fontSize: 16,
@@ -359,7 +429,6 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         paddingHorizontal: 20,
         borderRadius: 5,
-        marginTop: 15,
     },
     withdrawButtonText: {
         color: '#fff',
@@ -415,7 +484,7 @@ const styles = StyleSheet.create({
         color: '#666',
     },
     saqueContainer: {
-        backgroundColor: '#E0F2F1', // Um verde/azul claro para destacar o saque
+        backgroundColor: '#E0F2F1',
         borderColor: '#00BFA5',
         borderWidth: 1,
     },
@@ -428,6 +497,12 @@ const styles = StyleSheet.create({
     saqueJustificativa: {
         fontSize: 14,
         color: '#424242',
+    },
+    saqueItem: {
+        marginBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#B2DFDB',
+        paddingBottom: 5,
     },
     // Estilos do Modal
     modalContainer: {
@@ -447,6 +522,22 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         marginBottom: 15,
         textAlign: 'center',
+    },
+    formLabel: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginBottom: 5,
+    },
+    dateInputButton: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        backgroundColor: '#fff',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 15,
+    },
+    dateInputText: {
+        fontSize: 16,
     },
     input: {
         borderWidth: 1,

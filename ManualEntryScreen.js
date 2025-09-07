@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Picker } from '@react-native-picker/picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { collection, addDoc } from 'firebase/firestore';
-import { db } from './firebase_config';
+import { db, auth } from './firebase_config'; // Importe 'auth'
 
 const ManualEntryScreen = ({ navigation }) => {
     const [date, setDate] = useState(new Date());
     const [time, setTime] = useState(new Date());
-    const [showDatePicker, setShowDatePicker] = useState(false);
-    const [showTimePicker, setShowTimePicker] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(Platform.OS === 'ios');
+    const [showTimePicker, setShowTimePicker] = useState(Platform.OS === 'ios');
     const [justification, setJustification] = useState('Inclusão manual');
     const [customJustification, setCustomJustification] = useState('');
 
@@ -35,65 +35,61 @@ const ManualEntryScreen = ({ navigation }) => {
         setTime(currentTime);
     };
 
+    const showDatepicker = () => {
+        setShowDatePicker(true);
+    };
+
+    const showTimepicker = () => {
+        setShowTimePicker(true);
+    };
+
     const sendToFirestore = async () => {
-        const finalJustification = justification === 'Outro (especificar)' ? customJustification : justification;
-        if (justification === 'Outro (especificar)' && !customJustification) {
-            Alert.alert("Erro", "Por favor, especifique a outra justificativa.");
+        const user = auth.currentUser;
+        if (!user) {
+            Alert.alert("Erro", "Usuário não autenticado. Faça login para registrar o ponto.");
             return;
         }
 
+        const pointTimestamp = new Date(date.getFullYear(), date.getMonth(), date.getDate(), time.getHours(), time.getMinutes());
+
+        const pointData = {
+            timestamp_ponto: pointTimestamp.toISOString(),
+            origem: 'manual',
+            usuario_id: user.uid, // Salvando o UID do usuário
+            justificativa: justification === 'Outro (especificar)' ? customJustification : justification,
+            is_edited: false,
+        };
+
         try {
-            const pontosCollection = collection(db, 'pontos');
-            
-            // Usamos os objetos Date diretamente, sem conversões complexas
-            let workdayDate = new Date(date);
-            if (time.getHours() >= 0 && time.getHours() < 6) {
-                workdayDate.setDate(workdayDate.getDate() - 1);
-            }
-
-            // Unir a data e a hora para o timestamp final
-            const pointDateTime = new Date(
-                date.getFullYear(),
-                date.getMonth(),
-                date.getDate(),
-                time.getHours(),
-                time.getMinutes()
-            );
-
-            await addDoc(pontosCollection, {
-                date: pointDateTime.toLocaleDateString('pt-BR'),
-                time: pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-                justificativa: finalJustification,
-                timestamp_salvo: new Date().toISOString(),
-                timestamp_ponto: pointDateTime.toISOString(),
-                origem: 'manual',
-                workday_date: workdayDate.toLocaleDateString('pt-BR'),
-            });
-
-            Alert.alert("Sucesso!", "Ponto registrado manualmente com sucesso!");
-            setDate(new Date());
-            setTime(new Date());
-            setJustification('Inclusão manual');
-            setCustomJustification('');
-            navigation.navigate('CameraScreen');
+            await addDoc(collection(db, 'pontos'), pointData);
+            Alert.alert("Sucesso!", "Ponto manual registrado com sucesso.");
+            navigation.goBack();
         } catch (error) {
-            console.error("Erro ao enviar dados para o Firestore:", error);
-            Alert.alert("Erro", "Falha ao registrar o ponto. Verifique a conexão.");
+            console.error("Erro ao adicionar documento: ", error);
+            Alert.alert("Erro", "Não foi possível registrar o ponto manual.");
         }
     };
-
+    
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 <Text style={styles.header}>Registro Manual</Text>
-                
-                <Text style={styles.label}>Data</Text>
-                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowDatePicker(true)}>
-                    <Text style={styles.pickerButtonText}>{date.toLocaleDateString('pt-BR')}</Text>
-                </TouchableOpacity>
-                {showDatePicker && (
+
+                <Text style={styles.label}>Data:</Text>
+                {Platform.OS === 'ios' ? (
                     <DateTimePicker
-                        testID="datePicker"
+                        value={date}
+                        mode="date"
+                        display="default"
+                        onChange={onDateChange}
+                    />
+                ) : (
+                    <TouchableOpacity onPress={showDatepicker} style={styles.pickerButton}>
+                        <Text style={styles.pickerButtonText}>{date.toLocaleDateString('pt-BR')}</Text>
+                    </TouchableOpacity>
+                )}
+                {showDatePicker && Platform.OS === 'android' && (
+                    <DateTimePicker
                         value={date}
                         mode="date"
                         display="default"
@@ -101,36 +97,46 @@ const ManualEntryScreen = ({ navigation }) => {
                     />
                 )}
 
-                <Text style={styles.label}>Hora</Text>
-                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowTimePicker(true)}>
-                    <Text style={styles.pickerButtonText}>{time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text>
-                </TouchableOpacity>
-                {showTimePicker && (
+                <Text style={styles.label}>Hora:</Text>
+                {Platform.OS === 'ios' ? (
                     <DateTimePicker
-                        testID="timePicker"
                         value={time}
                         mode="time"
-                        is24Hour={true}
+                        display="default"
+                        onChange={onTimeChange}
+                    />
+                ) : (
+                    <TouchableOpacity onPress={showTimepicker} style={styles.pickerButton}>
+                        <Text style={styles.pickerButtonText}>{time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text>
+                    </TouchableOpacity>
+                )}
+                {showTimePicker && Platform.OS === 'android' && (
+                    <DateTimePicker
+                        value={time}
+                        mode="time"
                         display="default"
                         onChange={onTimeChange}
                     />
                 )}
-
-                <Text style={styles.label}>Justificativa</Text>
+                
+                <Text style={styles.label}>Justificativa:</Text>
                 <View style={styles.pickerContainer}>
                     <Picker
                         selectedValue={justification}
                         onValueChange={(itemValue) => setJustification(itemValue)}
+                        style={styles.picker}
                     >
-                        {justificationOptions.map((item, index) => (
-                            <Picker.Item key={index} label={item} value={item} />
+                        {justificationOptions.map((option, index) => (
+                            <Picker.Item key={index} label={option} value={option} />
                         ))}
                     </Picker>
                 </View>
                 
                 {justification === 'Outro (especificar)' && (
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { height: 100 }]}
+                        multiline
+                        numberOfLines={4}
                         value={customJustification}
                         onChangeText={setCustomJustification}
                         placeholder="Descreva a justificativa"
@@ -193,9 +199,12 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         marginBottom: 15,
     },
+    picker: {
+        width: '100%',
+    },
     buttonContainer: {
         marginTop: 20,
-    }
+    },
 });
 
 export default ManualEntryScreen;

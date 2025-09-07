@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal } from 'react-native';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase_config';
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
+import { db, auth } from './firebase_config'; // Importe 'auth'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -44,7 +44,21 @@ const HistoryScreen = ({ navigation }) => {
   };
 
   useEffect(() => {
-    const q = query(collection(db, 'pontos'), orderBy('timestamp_ponto', 'desc'));
+    const user = auth.currentUser;
+    if (!user) {
+        setLoading(false);
+        setPoints([]);
+        Alert.alert("Aviso", "Usuário não autenticado. Nenhum histórico para exibir.");
+        return;
+    }
+    
+    // Altera a query para filtrar pelo UID do usuário logado
+    const q = query(
+      collection(db, 'pontos'),
+      where('usuario_id', '==', user.uid),
+      orderBy('timestamp_ponto', 'desc')
+    );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const pointsData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -53,6 +67,10 @@ const HistoryScreen = ({ navigation }) => {
       }));
       setPoints(pointsData);
       setLoading(false);
+    }, (error) => {
+        console.error("Erro ao carregar os dados:", error);
+        setLoading(false);
+        Alert.alert("Erro", "Não foi possível carregar o histórico de pontos.");
     });
 
     return () => unsubscribe();

@@ -7,12 +7,12 @@ import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GOOGLE_CLOUD_VISION_API_KEY } from './api_config';
-import { db, storage } from './firebase_config';
+import { db, storage, auth } from './firebase_config'; // Importe 'auth'
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
-// NO FUTURO: Este nome virá de um sistema de autenticação
-const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
+// Remova o nome fixo, pois usaremos o UID do Firebase Auth
+// const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
 const RECEIPT_ASPECT_RATIO = 5.5 / 4; // 1.375 (horizontal)
 
 export default function CameraScreen({ navigation }) {
@@ -24,543 +24,350 @@ export default function CameraScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [processing, setProcessing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  // Novos estados para a validação de nome
   const [justificationModalVisible, setJustificationModalVisible] = useState(false);
   const [justification, setJustification] = useState('');
 
-  /**
-   * Encontra a caixa delimitadora (bounding box) do texto na imagem usando a API Vision.
-   * @param {string} base64Image - A imagem em formato base64.
-   * @returns {object|null} A caixa delimitadora com originX, originY, width, height ou null se não for encontrada.
-   */
-  const findDocumentBoundingBox = async (base64Image) => {
-    console.log("DEBUG: Tentando encontrar a caixa delimitadora do documento...");
+  const sendToFirestore = async (isManualEdit = false) => {
     try {
-      const response = await axios.post(
-        `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
-        {
-          requests: [{
-            image: { content: base64Image },
-            features: [{ type: 'TEXT_DETECTION' }],
-          }],
-        }
-      );
-
-      const textAnnotations = response.data.responses[0]?.textAnnotations;
-      
-      if (!textAnnotations || textAnnotations.length <= 1) {
-        console.log("DEBUG: Nenhum texto detectado para delimitar o documento.");
-        return null;
+      const user = auth.currentUser;
+      if (!user) {
+        Alert.alert("Erro", "Usuário não autenticado. Faça login para registrar o ponto.");
+        return;
       }
       
-      const words = textAnnotations.slice(1);
-      
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      let hasValidWord = false;
-
-      words.forEach(word => {
-        if (word.boundingPoly && word.boundingPoly.vertices) {
-          hasValidWord = true;
-          word.boundingPoly.vertices.forEach(vertex => {
-            minX = Math.min(minX, vertex.x);
-            minY = Math.min(minY, vertex.y);
-            maxX = Math.max(maxX, vertex.x);
-            maxY = Math.max(maxY, vertex.y);
-          });
-        }
-      });
-      
-      if (!hasValidWord) {
-        console.log("DEBUG: Nenhuma palavra com coordenadas válidas foi encontrada.");
-        return null;
-      }
-
-      const margin = 20;
-      const boundingBox = {
-        originX: Math.max(0, minX - margin),
-        originY: Math.max(0, minY - margin),
-        width: (maxX - minX) + (2 * margin),
-        height: (maxY - minY) + (2 * margin),
+      const pointTimestamp = new Date();
+      const pointData = {
+        timestamp_ponto: pointTimestamp.toISOString(),
+        origem: 'app',
+        usuario_id: user.uid, // Salvando o UID do usuário
+        data_digitada: extractedData.data,
+        hora_digitada: extractedData.hora,
+        justificativa: justification || null,
+        is_edited: isManualEdit,
+        original_data: originalExtractedData,
+        original_text: originalText,
       };
-      
-      console.log("DEBUG: Bounding box calculada com sucesso:", boundingBox);
-      return boundingBox;
 
-    } catch (error) {
-      console.error('ERRO: Falha ao detectar texto para a caixa delimitadora:', error);
-      return null;
-    }
-  };
-
-  /**
-   * Analisa a imagem para extrair todo o texto do documento.
-   * @param {string} base64Image - Imagem em base64.
-   * @returns {string} O texto completo extraído ou uma mensagem de erro.
-   */
-  const analyzeImage = async (base64Image) => {
-    console.log("DEBUG: Enviando imagem para a API Vision...");
-    try {
-      const response = await axios.post(
-        `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
-        {
-          requests: [{
-            image: { content: base64Image },
-            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-          }],
-        }
-      );
-      const textFromImage = response.data.responses[0]?.fullTextAnnotation?.text;
-      if (textFromImage) {
-        console.log("DEBUG: Texto extraído com sucesso. Conteúdo:");
-        console.log("--------------------");
-        console.log(textFromImage);
-        console.log("--------------------");
-      } else {
-        console.log("DEBUG: Não foi possível extrair o texto completo.");
+      if (extractedData.image_url) {
+        pointData.image_url = extractedData.image_url;
       }
-      return textFromImage || "Não foi possível detectar texto. Por favor, tente novamente.";
+
+      await addDoc(collection(db, 'pontos'), pointData);
+      console.log('Ponto salvo com sucesso!');
+      Alert.alert('Sucesso', 'Ponto registrado com sucesso!');
     } catch (error) {
-      console.error('ERRO: Falha ao analisar a imagem:', error);
-      return "Não foi possível detectar texto. Por favor, tente novamente.";
-    }
-  };
-
-  const extractDataFromText = (text) => {
-    console.log("DEBUG: Iniciando extração de dados...");
-    const data = {};
-    const nameRegex = /NOME\s+(.*)/i;
-    const nameMatch = text.match(nameRegex);
-    if (nameMatch) {
-      data.name = nameMatch[1].trim();
-    }
-    const dateTimeRegex = /(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/;
-    const dateTimeMatch = text.match(dateTimeRegex);
-    if (dateTimeMatch) {
-      data.date = dateTimeMatch[1];
-      data.time = dateTimeMatch[2];
-    }
-    const storeRegex = /LOCAL:\s*(.*)/i;
-    const storeMatch = text.match(storeRegex);
-    if (storeMatch) {
-      data.store = storeMatch[1].trim();
-    }
-    const authCodeRegex = /PIS:\s*(\d+)/i;
-    const authCodeMatch = text.match(authCodeRegex);
-    if (authCodeMatch) {
-      data.authCode = authCodeMatch[1].trim();
-    }
-    console.log("DEBUG: Dados extraídos:", data);
-    return data;
-  };
-
-  const checkIfDuplicate = async (data) => {
-    console.log("DEBUG: Verificando duplicidade para:", data.name, data.date, data.time);
-    const pontosRef = collection(db, 'pontos');
-    const q = query(
-      pontosRef,
-      where('name', '==', data.name),
-      where('date', '==', data.date),
-      where('time', '==', data.time)
-    );
-    const querySnapshot = await getDocs(q);
-    const isDuplicate = !querySnapshot.empty;
-    console.log("DEBUG: Duplicidade verificada. É um duplicado?", isDuplicate);
-    return isDuplicate;
-  };
-
-  const uploadImage = async (uri) => {
-    console.log("DEBUG: Iniciando upload da imagem para o Firebase Storage...");
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const filename = `comprovantes/${Date.now()}.jpg`;
-      const storageRef = ref(storage, filename);
-      await uploadBytes(storageRef, blob);
-      const downloadURL = await getDownloadURL(storageRef);
-      console.log("DEBUG: Imagem enviada para o Firebase Storage:", downloadURL);
-      return downloadURL;
-    } catch (error) {
-      console.error("ERRO: Falha ao enviar a imagem:", error);
-      return null;
-    }
-  };
-
-  const sendToFirestore = async (data, photoURL, justification = null) => {
-    console.log("DEBUG: Enviando dados para o Firestore...");
-    try {
-      const pontosCollection = collection(db, 'pontos');
-      const [day, month, year] = data.date.split('/').map(Number);
-      const [hours, minutes] = data.time.split(':').map(Number);
-      const pointDateTime = new Date(year, month - 1, day, hours, minutes);
-      let workdayDate = new Date(pointDateTime);
-      if (hours >= 0 && hours < 6) {
-        workdayDate.setDate(workdayDate.getDate() - 1);
-      }
-      await addDoc(pontosCollection, {
-        ...data,
-        timestamp_salvo: new Date().toISOString(),
-        timestamp_ponto: pointDateTime.toISOString(),
-        url_foto: photoURL,
-        origem: 'foto',
-        workday_date: workdayDate.toLocaleDateString('pt-BR'),
-        name_from_ocr: data.name,
-        justificativa_nome: justification,
-      });
-      console.log("DEBUG: Dados enviados para o Firestore com sucesso!");
-      return true;
-    } catch (error) {
-      console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
-      return false;
-    }
-  };
-
-  async function handleConfirmData() {
-    setIsSaving(true);
-    try {
-        if (!extractedData.date || !extractedData.time) {
-            Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
-            setValidationModalVisible(false);
-            return;
-        }
-
-        const finalData = { ...extractedData };
-        if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
-            finalData.editado = true;
-            finalData.data_original_ocr = originalExtractedData.date;
-            finalData.hora_original_ocr = originalExtractedData.time;
-        }
-
-        const isDuplicate = await checkIfDuplicate(finalData);
-        if (isDuplicate) {
-            Alert.alert("Aviso", "Este comprovante já foi registrado!");
-            setValidationModalVisible(false);
-            setIsSaving(false);
-            return;
-        }
-
-        if (finalData.name && finalData.name.trim().toUpperCase() !== CURRENT_USER_NAME.trim().toUpperCase()) {
-            Alert.alert(
-                "Aviso de Nome Diferente",
-                `O nome extraído do comprovante (${finalData.name}) não corresponde ao seu nome de usuário (${CURRENT_USER_NAME}). Por favor, justifique a diferença.`,
-                [
-                    { text: "Cancelar", style: "cancel", onPress: () => {
-                        setIsSaving(false);
-                        setValidationModalVisible(false);
-                    }},
-                    { text: "Justificar", onPress: () => {
-                        setIsSaving(false);
-                        setValidationModalVisible(false);
-                        setJustificationModalVisible(true);
-                    }}
-                ]
-            );
-            return;
-        }
-        
-        await savePointAndImage(finalData);
-
+      console.error('Erro ao salvar no Firestore:', error);
+      Alert.alert('Erro', 'Não foi possível registrar o ponto.');
     } finally {
-        setIsSaving(false);
-    }
-  }
-
-  const savePointAndImage = async (data, justification = null) => {
-    setIsSaving(true);
-    try {
-      const photoURL = await uploadImage(data.photoUri);
-      const success = await sendToFirestore(data, photoURL, justification);
-      if (success) {
-        Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-      } else {
-        Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
-      }
-    } finally {
-      setIsSaving(false);
-      setJustificationModalVisible(false);
+      setCameraModalVisible(false);
       setValidationModalVisible(false);
+      setJustificationModalVisible(false);
+      setProcessing(false);
     }
   };
 
-  async function handleOpenCamera() {
-    try {
-      if (!permission.granted) {
-          const permissionResult = await requestPermission();
-          if (!permissionResult.granted) {
-              Alert.alert("Câmera", "Você precisa habilitar o uso da câmera");
-              return;
-          }
-      }
-      setCameraModalVisible(true);
-    } catch (error) {
-      console.log(error);
+  const takePicture = async () => {
+    if (!permission.granted) {
+      Alert.alert('Permissão necessária', 'Conceda permissão para acessar a câmera nas configurações do seu dispositivo.');
+      return;
     }
-  }
-
-  async function handleTakePhoto() {
     if (cameraRef.current) {
       setProcessing(true);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7,
-        base64: true,
-        mute: true,
-      });
-      setCameraModalVisible(false);
-      
-      let imageUriToAnalyze = photo.uri;
-      let base64ImageToAnalyze = photo.base64;
-      
-      const boundingBox = await findDocumentBoundingBox(photo.base64);
+      try {
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.5,
+          base64: true,
+          exif: false,
+        });
 
-      if (boundingBox) {
-        try {
-          console.log("DEBUG: Bounding box encontrada. Recortando imagem.");
-          const croppedImage = await manipulateAsync(
-            photo.uri,
-            [{ crop: boundingBox }],
-            { compress: 1, format: SaveFormat.JPEG, base64: true }
-          );
-          imageUriToAnalyze = croppedImage.uri;
-          base64ImageToAnalyze = croppedImage.base64;
-          console.log("DEBUG: Imagem recortada com sucesso.");
-        } catch (cropError) {
-          console.error("ERRO: Falha ao recortar a imagem. Usando a imagem original.", cropError);
+        const croppedImage = await manipulateAsync(
+          photo.uri,
+          [{ resize: { width: 800 } }],
+          { compress: 0.7, format: SaveFormat.JPEG, base64: true }
+        );
+
+        if (croppedImage) {
+          await processImage(croppedImage.base64);
         }
-      } else {
-        console.log("DEBUG: Não foi possível encontrar a bounding box, usando imagem original.");
+      } catch (error) {
+        console.error('Erro ao tirar a foto ou processar:', error);
+        setProcessing(false);
+        Alert.alert('Erro', 'Não foi possível tirar a foto. Tente novamente.');
       }
-      
-      const detectedText = await analyzeImage(base64ImageToAnalyze);
-      const extracted = extractDataFromText(detectedText);
-      setExtractedData({ ...extracted, photoUri: imageUriToAnalyze });
-      setOriginalExtractedData(extracted);
-      setOriginalText(detectedText);
-      setProcessing(false);
-      setValidationModalVisible(true);
     }
+  };
+
+  const processImage = async (base64) => {
+    try {
+      const requestBody = {
+        requests: [{
+          image: { content: base64 },
+          features: [{ type: 'TEXT_DETECTION' }],
+        }]
+      };
+
+      const response = await axios.post(
+        `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
+        requestBody,
+        {
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+
+      if (response.data.responses[0].fullTextAnnotation) {
+        const text = response.data.responses[0].fullTextAnnotation.text;
+        setOriginalText(text);
+
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+        let extractedTime = '';
+        let extractedDate = '';
+
+        const timeRegex = /(?:\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})/;
+        const dateRegex = /\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}\/\d{1,2}/;
+
+        for (const line of lines) {
+          if (timeRegex.test(line) && !extractedTime) {
+            extractedTime = line.match(timeRegex)[0];
+          }
+          if (dateRegex.test(line) && !extractedDate) {
+            extractedDate = line.match(dateRegex)[0];
+          }
+        }
+        
+        const imageUrl = await uploadImage(base64);
+
+        setExtractedData({
+          data: extractedDate,
+          hora: extractedTime,
+          image_url: imageUrl,
+        });
+        setOriginalExtractedData({
+          data: extractedDate,
+          hora: extractedTime,
+        });
+        setValidationModalVisible(true);
+
+      } else {
+        Alert.alert('Erro', 'Nenhum texto detectado na imagem.');
+      }
+    } catch (error) {
+      console.error('Erro na API do Google Vision:', error.response?.data || error.message);
+      Alert.alert('Erro', 'Não foi possível processar a imagem.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+  
+  const uploadImage = async (base64) => {
+    if (!base64) return null;
+    const storageRef = ref(storage, `receipts/${Date.now()}.jpg`);
+    const imgBlob = await fetch(`data:image/jpeg;base64,${base64}`).then(r => r.blob());
+    await uploadBytes(storageRef, imgBlob);
+    const downloadURL = await getDownloadURL(storageRef);
+    return downloadURL;
+  };
+
+  const handleValidationConfirm = () => {
+    setJustificationModalVisible(true);
+  };
+  
+  const handleJustificationConfirm = () => {
+    sendToFirestore(true);
+  };
+
+  if (!permission) {
+    return <View style={styles.container}><ActivityIndicator size="large" color="#007AFF" /></View>;
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={{ textAlign: 'center' }}>Precisamos de sua permissão para mostrar a câmera</Text>
+        <Button onPress={requestPermission} title="Conceder Permissão" />
+      </View>
+    );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.mainButtonsContainer}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleOpenCamera}>
-            <Text style={styles.actionButtonText}>Tirar foto do comprovante</Text>
-        </TouchableOpacity>
-        <Text style={styles.infoText}>Use o menu abaixo para navegar entre as telas.</Text>
-      </View>
-      <Modal visible={cameraModalVisible} style={{ flex: 1 }}>
-        <CameraView
-          style={{ flex: 1 }}
-          facing="back"
-          ref={cameraRef}
-        />
-        {/* Estrutura para a moldura de enquadramento */}
-        <View style={styles.cameraFrameContainer}>
-          <View style={styles.horizontalFrame} />
-        </View>
-        <View style={styles.cameraControls}>
-          <TouchableOpacity style={styles.captureButton} onPress={handleTakePhoto}>
-            <View style={styles.captureButtonOuter}>
-              <View style={styles.captureButtonInner}></View>
+      {/* Botão para abrir a câmera */}
+      <TouchableOpacity onPress={() => setCameraModalVisible(true)} style={styles.button}>
+        <Text style={styles.buttonText}>Abrir Câmera</Text>
+      </TouchableOpacity>
+
+      {/* Modal da Câmera */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={cameraModalVisible}
+        onRequestClose={() => setCameraModalVisible(false)}
+      >
+        <View style={styles.cameraContainer}>
+          <CameraView style={styles.camera} ref={cameraRef} facing="back">
+            <View style={styles.cameraControls}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => setCameraModalVisible(false)}
+              >
+                <Text style={styles.text}>Voltar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.captureButton}
+                onPress={takePicture}
+              />
             </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelButton} onPress={() => setCameraModalVisible(false)}>
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
-          </TouchableOpacity>
+          </CameraView>
         </View>
       </Modal>
 
-      <Modal visible={validationModalVisible} animationType="slide" style={{ flex: 1 }}>
-        <SafeAreaView style={styles.modalContainer}>
-          <ScrollView style={styles.scrollView}>
-            <Text style={styles.modalHeader}>Confirme os Dados</Text>
-            <Text style={styles.modalSubtitle}>Dados extraídos da imagem. Por favor, corrija se necessário.</Text>
-            
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Nome:</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: '#e0e0e0' }]}
-                value={extractedData.name}
-                editable={false}
-              />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Data:</Text>
+      {/* Modal de Validação de Dados */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={validationModalVisible}
+        onRequestClose={() => setValidationModalVisible(false)}
+      >
+        <View style={styles.validationModalContainer}>
+          <View style={styles.validationModalContent}>
+            <ScrollView>
+              <Text style={styles.modalTitle}>Validar Informações</Text>
+              
+              <Text style={styles.label}>Data:</Text>
               <TextInput
                 style={styles.input}
-                onChangeText={(text) => setExtractedData({ ...extractedData, date: text })}
-                value={extractedData.date}
+                value={extractedData.data}
+                onChangeText={(text) => setExtractedData({ ...extractedData, data: text })}
               />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Hora:</Text>
+              
+              <Text style={styles.label}>Hora:</Text>
               <TextInput
                 style={styles.input}
-                onChangeText={(text) => setExtractedData({ ...extractedData, time: text })}
-                value={extractedData.time}
+                value={extractedData.hora}
+                onChangeText={(text) => setExtractedData({ ...extractedData, hora: text })}
               />
+
+              <Text style={styles.originalTextLabel}>Texto Original Detectado:</Text>
+              <Text style={styles.originalText}>{originalText}</Text>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <Button title="Corrigir e Salvar" onPress={handleValidationConfirm} />
+              <Button title="Cancelar" onPress={() => setValidationModalVisible(false)} color="red" />
             </View>
-            <Text style={styles.originalTextLabel}>Texto original do comprovante:</Text>
-            <Text style={styles.originalText}>{originalText}</Text>
-          </ScrollView>
-          <View style={styles.modalFooter}>
-            <Button
-              title={isSaving ? "Salvando..." : "Confirmar"}
-              onPress={handleConfirmData}
-              disabled={isSaving}
-            />
-            <Button
-              title="Cancelar"
-              onPress={() => setValidationModalVisible(false)}
-            />
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
 
-      <Modal visible={justificationModalVisible} animationType="slide" transparent={true}>
+      {/* Modal de Justificativa */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={justificationModalVisible}
+        onRequestClose={() => setJustificationModalVisible(false)}
+      >
         <View style={styles.justificationModalContainer}>
           <View style={styles.justificationModalContent}>
-            <Text style={styles.justificationHeader}>Justifique a Diferença no Nome</Text>
-            <Text style={styles.justificationMessage}>O nome extraído não corresponde ao seu. Por favor, explique a razão da diferença.</Text>
+            <Text style={styles.justificationHeader}>Justificativa</Text>
             <TextInput
-              style={styles.justificationInput}
-              onChangeText={setJustification}
+              style={styles.input}
+              placeholder="Descreva a justificativa para a alteração"
               value={justification}
+              onChangeText={setJustification}
               multiline
-              placeholder="Ex: 'Comprovante em nome de outro funcionário', 'Erro de leitura do OCR', etc."
             />
-            <View style={styles.justificationButtonContainer}>
-              <Button title="Cancelar" onPress={() => setJustificationModalVisible(false)} color="#666" />
-              <Button 
-                title="Confirmar" 
-                onPress={() => savePointAndImage(extractedData, justification)} 
-                disabled={isSaving || !justification} 
-              />
+            <View style={styles.buttonGroup}>
+              <Button title="Salvar Ponto" onPress={handleJustificationConfirm} />
+              <Button title="Cancelar" onPress={() => setJustificationModalVisible(false)} color="red" />
             </View>
           </View>
         </View>
       </Modal>
 
       {processing && (
-        <Modal transparent={true} animationType="fade">
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>Processando imagem...</Text>
-          </View>
-        </Modal>
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>Processando imagem...</Text>
+        </View>
       )}
-
     </SafeAreaView>
   );
 }
 
-const frameWidth = windowWidth * 0.9;
-const frameHeight = frameWidth / RECEIPT_ASPECT_RATIO;
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
-  mainButtonsContainer: {
+  permissionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    width: '100%',
   },
-  actionButton: {
+  button: {
     backgroundColor: '#007AFF',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 8,
-    width: '80%',
-    marginBottom: 15,
-    alignItems: 'center',
+    padding: 15,
+    borderRadius: 10,
   },
-  actionButtonText: {
+  buttonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
-  infoText: {
-    marginTop: 20,
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+  cameraContainer: {
+    flex: 1,
+    backgroundColor: 'black',
+  },
+  camera: {
+    flex: 1,
+    width: '100%',
+    aspectRatio: 9 / 16,
+    justifyContent: 'flex-end',
   },
   cameraControls: {
-    position: "absolute",
-    bottom: 30,
-    width: '100%',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  backButton: {
+    padding: 10,
   },
   captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  captureButtonOuter: {
     width: 70,
     height: 70,
     borderRadius: 35,
+    backgroundColor: 'white',
     borderWidth: 2,
-    borderColor: 'gray',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: '#007AFF',
   },
-  captureButtonInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#fff',
-  },
-  cancelButton: {
-    marginTop: 20,
-  },
-  cancelButtonText: {
+  text: {
     color: 'white',
     fontSize: 16,
   },
-  // ESTILOS PARA A MOLDURA DE ENQUADRAMENTO
-  cameraFrameContainer: {
-    ...StyleSheet.absoluteFillObject,
+  validationModalContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  horizontalFrame: {
-    width: frameWidth,
-    height: frameHeight,
-    backgroundColor: 'transparent',
-    borderColor: 'white',
-    borderWidth: 2,
-  },
-  modalContainer: {
-    flex: 1,
+  validationModalContent: {
+    backgroundColor: 'white',
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    width: '90%',
+    maxHeight: '80%',
   },
-  modalHeader: {
-    fontSize: 24,
+  modalTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
     marginBottom: 20,
+    textAlign: 'center',
   },
-  formGroup: {
-    marginBottom: 15,
-  },
-  formLabel: {
+  label: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 5,
@@ -617,23 +424,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
-  justificationMessage: {
-    fontSize: 16,
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  justificationInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    padding: 10,
-    minHeight: 100,
-    textAlignVertical: 'top',
-    marginBottom: 15,
-  },
-  justificationButtonContainer: {
+  buttonGroup: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    width: '100%',
+    marginTop: 20,
   },
 });

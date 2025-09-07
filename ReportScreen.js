@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Alert, Modal, TextInput, Button, TouchableOpacity, ScrollView, Platform } from 'react-native';
-import { collection, query, getDocs, addDoc } from 'firebase/firestore';
-import { db } from './firebase_config';
+import { collection, query, getDocs, addDoc, where } from 'firebase/firestore';
+import { db, auth } from './firebase_config'; // Importe 'auth'
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Define a jornada de trabalho padrão (8 horas) e os limites dos breaks
@@ -10,8 +10,8 @@ const REQUIRED_DAILY_POINTS = 4;
 const SHORT_BREAK_THRESHOLD_MINUTES = 50;
 const LONG_BREAK_THRESHOLD_MINUTES = 65;
 
-// NO FUTURO: Este nome virá de um sistema de autenticação
-const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
+// Remova o nome fixo, pois usaremos o UID do Firebase Auth
+// const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
 
 // Função utilitária para converter HH:MM em minutos totais
 const timeToMinutes = (time) => {
@@ -32,471 +32,409 @@ const calculateMinuteDifference = (start, end) => {
 };
 
 // Formata minutos totais para o formato "Xh Ym"
-const formatMinutesToHours = (totalMinutes) => {
-    const sign = totalMinutes >= 0 ? "" : "-";
-    const absMinutes = Math.abs(totalMinutes);
-    const hours = Math.floor(absMinutes / 60);
-    const minutes = absMinutes % 60;
-    return `${sign}${hours}h ${minutes}m`;
+const formatDuration = (minutes) => {
+    const sign = minutes >= 0 ? '+' : '-';
+    const absoluteMinutes = Math.abs(minutes);
+    const hours = Math.floor(absoluteMinutes / 60);
+    const mins = absoluteMinutes % 60;
+    return `${sign}${hours}h ${mins}m`;
 };
 
-// Função utilitária para criar um objeto Date a partir de DD/MM/AAAA e HH:MM
-const parseDate = (dateStr, timeStr = '00:00') => {
-    if (!dateStr) return null;
-    const [day, month, year] = dateStr.split('/').map(Number);
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    return new Date(year, month - 1, day, hours, minutes);
+// Formata minutos totais para o formato "HH:mm"
+const formatMinutesToTime = (totalMinutes) => {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const paddedHours = String(hours).padStart(2, '0');
+    const paddedMinutes = String(minutes).padStart(2, '0');
+    return `${paddedHours}:${paddedMinutes}`;
 };
 
-// Formata um objeto Date para DD/MM/AAAA
-const formatDate = (date) => {
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-};
 
-export default function ReportScreen() {
+const ReportScreen = () => {
     const [points, setPoints] = useState([]);
+    const [saques, setSaques] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
-    const [hoursToWithdraw, setHoursToWithdraw] = useState('');
-    const [justification, setJustification] = useState('');
-    const [withdrawDate, setWithdrawDate] = useState(new Date());
+    const [totalHours, setTotalHours] = useState(0);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [saqueAmount, setSaqueAmount] = useState('');
+    const [saqueDate, setSaqueDate] = useState(new Date());
+    const [saqueJustification, setSaqueJustification] = useState('');
     const [showDatePicker, setShowDatePicker] = useState(false);
 
-    const fetchPoints = async () => {
-        setLoading(true);
-        try {
-            const pontosCollection = collection(db, 'pontos');
-            const q = query(pontosCollection);
-            const querySnapshot = await getDocs(q);
-
-            const pointsList = querySnapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() }))
-                .filter(doc => (doc.origem === 'saque' && doc.data_saque) || (doc.origem !== 'saque' && doc.workday_date && doc.time));
-
-            pointsList.sort((a, b) => {
-                const dateA = a.origem === 'saque' ? parseDate(a.data_saque) : parseDate(a.workday_date, a.time);
-                const dateB = b.origem === 'saque' ? parseDate(b.data_saque) : parseDate(b.workday_date, b.time);
-
-                if (!dateA && !dateB) return 0;
-                if (!dateA) return 1;
-                if (!dateB) return -1;
-                return dateA - dateB;
-            });
-            
-            setPoints(pointsList);
-        } catch (e) {
-            console.error("Erro ao buscar os documentos: ", e);
-            Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
-        } finally {
-            setLoading(false);
-        }
+    const onDateChange = (event, selectedDate) => {
+        const currentDate = selectedDate || saqueDate;
+        setShowDatePicker(Platform.OS === 'ios');
+        setSaqueDate(currentDate);
     };
 
-    const groupPointsByWorkday = (points) => {
-        const grouped = {};
-        points.forEach(point => {
-            const date = point.workday_date || point.data_saque;
-            if (!grouped[date]) {
-                grouped[date] = [];
+    const showDatepicker = () => {
+        setShowDatePicker(true);
+    };
+
+    // Função para calcular o banco de horas
+    const calculateTimeBank = (points, saques) => {
+        if (points.length < REQUIRED_DAILY_POINTS) {
+            return { balance: 0, dailyBalances: [], totalWorkedMinutes: 0 };
+        }
+        
+        const DAILY_WORK_MINUTES = DAILY_WORK_HOURS * 60;
+        let totalBalanceMinutes = 0;
+        let dailyBalances = [];
+
+        const groupedByDay = points.reduce((acc, point) => {
+            const date = new Date(point.timestamp_ponto).toLocaleDateString('pt-BR');
+            if (!acc[date]) {
+                acc[date] = [];
             }
-            grouped[date].push(point);
-        });
-        return grouped;
-    };
+            acc[date].push(point);
+            return acc;
+        }, {});
 
-    const calculateDailySummary = (dailyPoints) => {
-        let totalDailyMinutes = 0;
-        let breakStatus = 'normal';
-        let isSaque = false;
+        Object.entries(groupedByDay).forEach(([date, dailyPoints]) => {
+            const sortedPoints = dailyPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
+            if (sortedPoints.length >= REQUIRED_DAILY_POINTS) {
+                let workedMinutes = 0;
+                let breakMinutes = 0;
 
-        const regularPoints = dailyPoints.filter(p => p.origem !== 'saque').sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time));
-        const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); 
+                // Jornada 1
+                const entry1 = new Date(sortedPoints[0].timestamp_ponto);
+                const exit1 = new Date(sortedPoints[1].timestamp_ponto);
+                workedMinutes += Math.abs(exit1 - entry1) / (1000 * 60);
 
-        if (regularPoints.length >= REQUIRED_DAILY_POINTS) {
-            const firstIn = regularPoints[0].time;
-            const breakOut = regularPoints[1].time;
-            const breakIn = regularPoints[2].time;
-            const lastOut = regularPoints[3].time;
+                // Jornada 2
+                const entry2 = new Date(sortedPoints[2].timestamp_ponto);
+                const exit2 = new Date(sortedPoints[3].timestamp_ponto);
+                workedMinutes += Math.abs(exit2 - entry2) / (1000 * 60);
 
-            const workPart1 = calculateMinuteDifference(firstIn, breakOut);
-            const workPart2 = calculateMinuteDifference(breakIn, lastOut);
-            const breakDuration = calculateMinuteDifference(breakOut, breakIn);
+                // Intervalo de almoço
+                const breakStart = new Date(sortedPoints[1].timestamp_ponto);
+                const breakEnd = new Date(sortedPoints[2].timestamp_ponto);
+                breakMinutes = Math.abs(breakEnd - breakStart) / (1000 * 60);
 
-            totalDailyMinutes = workPart1 + workPart2;
-
-            if (breakDuration < SHORT_BREAK_THRESHOLD_MINUTES) {
-                breakStatus = 'short';
-            } else if (breakDuration > LONG_BREAK_THRESHOLD_MINUTES) {
-                breakStatus = 'long';
-                const extraBreakMinutes = breakDuration - LONG_BREAK_THRESHOLD_MINUTES;
-                totalDailyMinutes -= extraBreakMinutes;
-            }
-        }
-
-        if (saquePoints.length > 0) { 
-            isSaque = true;
-            saquePoints.forEach(saquePoint => {
-                totalDailyMinutes += saquePoint.minutos_saque;
-            });
-        }
-
-        return { totalDailyMinutes, breakStatus, isSaque };
-    };
-
-    const calculateTimeBank = (groupedPoints) => {
-        let totalMinutesWorked = 0;
-        let totalMinutesRequired = 0;
-
-        Object.keys(groupedPoints).forEach(date => {
-            const dailyPoints = groupedPoints[date];
-            const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
-
-            if (regularPoints.length >= REQUIRED_DAILY_POINTS || dailyPoints.some(p => p.origem === 'saque')) {
-                const { totalDailyMinutes, isSaque } = calculateDailySummary(dailyPoints);
-                totalMinutesWorked += totalDailyMinutes;
-                if (!isSaque || regularPoints.length > 0) {
-                    totalMinutesRequired += DAILY_WORK_HOURS * 60;
-                }
+                const dailyBalance = workedMinutes - DAILY_WORK_MINUTES;
+                totalBalanceMinutes += dailyBalance;
+                
+                dailyBalances.push({
+                    date: date,
+                    worked: workedMinutes,
+                    balance: dailyBalance,
+                    details: [
+                        `Jornada 1: ${formatMinutesToTime(workedMinutes)}`,
+                        `Intervalo: ${Math.round(breakMinutes)} min`
+                    ]
+                });
+            } else {
+                dailyBalances.push({
+                    date: date,
+                    worked: 0,
+                    balance: -DAILY_WORK_MINUTES,
+                    details: ["Pontos insuficientes para cálculo"]
+                });
+                totalBalanceMinutes -= DAILY_WORK_MINUTES;
             }
         });
         
-        return totalMinutesWorked - totalMinutesRequired;
+        // Subtrair saques
+        saques.forEach(saque => {
+            totalBalanceMinutes -= saque.quantidade_minutos;
+        });
+
+        return { balance: totalBalanceMinutes, dailyBalances };
     };
 
-    const [groupedPoints, setGroupedPoints] = useState({});
-    const [timeBankInMinutes, setTimeBankInMinutes] = useState(0);
-
-    useEffect(() => {
-        const loadData = async () => {
-            await fetchPoints();
-        };
-        loadData();
-    }, []);
-
-    useEffect(() => {
-        if (points.length > 0) {
-            const grouped = groupPointsByWorkday(points);
-            setGroupedPoints(grouped);
-            setTimeBankInMinutes(calculateTimeBank(grouped));
-        }
-    }, [points]);
-
-    const handleWithdraw = async () => {
-        if (!hoursToWithdraw || !justification) {
-            Alert.alert("Erro", "Por favor, preencha todos os campos.");
+    // Função para adicionar saque
+    const addSaqueHoras = async () => {
+        const user = auth.currentUser;
+        if (!user) {
+            Alert.alert("Erro", "Usuário não autenticado. Faça login para registrar o saque.");
             return;
         }
 
-        const inputDate = withdrawDate;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        if (inputDate > today) {
-            Alert.alert("Erro", "Não é possível sacar horas para uma data futura.");
-            return;
-        }
-
-        const totalMinutes = parseInt(hoursToWithdraw, 10) * 60 * -1;
-
-        if (isNaN(totalMinutes)) {
-            Alert.alert("Erro", "Formato de horas inválido.");
+        const saqueValue = parseInt(saqueAmount, 10);
+        if (isNaN(saqueValue) || saqueValue <= 0) {
+            Alert.alert("Erro", "Por favor, insira um valor válido para o saque.");
             return;
         }
 
         try {
-            await addDoc(collection(db, 'pontos'), {
-                name: CURRENT_USER_NAME,
-                data_saque: formatDate(inputDate),
-                justificativa_saque: justification,
-                minutos_saque: totalMinutes,
-                origem: 'saque',
-                timestamp_saque: new Date().toISOString(),
+            await addDoc(collection(db, 'saques'), {
+                quantidade_minutos: saqueValue,
+                data_saque: saqueDate.toISOString(),
+                justificativa: saqueJustification,
+                usuario_id: user.uid, // Salvando o UID do usuário
             });
-            setWithdrawModalVisible(false);
-            setHoursToWithdraw('');
-            setJustification('');
-            setWithdrawDate(new Date());
-            Alert.alert("Sucesso!", `Saque de ${hoursToWithdraw} horas registrado com sucesso.`);
-            fetchPoints();
-        } catch (e) {
-            console.error("Erro ao registrar o saque: ", e);
-            Alert.alert("Erro", "Falha ao registrar o saque. Tente novamente.");
+            Alert.alert("Sucesso", "Saque de horas registrado com sucesso!");
+            setModalVisible(false);
+            setSaqueAmount('');
+            setSaqueJustification('');
+        } catch (error) {
+            console.error("Erro ao registrar saque:", error);
+            Alert.alert("Erro", "Não foi possível registrar o saque.");
         }
     };
     
-    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
-    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
-    const daysWithIncompletePoints = Object.values(groupedPoints).some(
-        (dailyPoints) => dailyPoints.some(p => p.origem !== 'saque') && dailyPoints.filter(p => p.origem !== 'saque').length < REQUIRED_DAILY_POINTS
-    );
+
+    useEffect(() => {
+        const user = auth.currentUser;
+        if (!user) {
+            setLoading(false);
+            setPoints([]);
+            setSaques([]);
+            Alert.alert("Aviso", "Usuário não autenticado. Nenhum banco de horas para exibir.");
+            return;
+        }
+
+        const fetchAllData = async () => {
+            try {
+                // Altera a query para filtrar os pontos pelo UID do usuário
+                const pointsQuery = query(
+                    collection(db, 'pontos'),
+                    where('usuario_id', '==', user.uid),
+                    orderBy('timestamp_ponto')
+                );
+                const pointsSnapshot = await getDocs(pointsQuery);
+                const fetchedPoints = pointsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setPoints(fetchedPoints);
+
+                // Altera a query para filtrar os saques pelo UID do usuário
+                const saquesQuery = query(
+                    collection(db, 'saques'),
+                    where('usuario_id', '==', user.uid),
+                    orderBy('data_saque', 'desc')
+                );
+                const saquesSnapshot = await getDocs(saquesQuery);
+                const fetchedSaques = saquesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setSaques(fetchedSaques);
+                
+            } catch (error) {
+                console.error("Erro ao carregar dados do banco de horas:", error);
+                Alert.alert("Erro", "Não foi possível carregar os dados.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const unsubscribe = auth.onAuthStateChanged(user => {
+            if (user) {
+                fetchAllData();
+            } else {
+                setLoading(false);
+                setPoints([]);
+                setSaques([]);
+            }
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
+        if (!loading) {
+            const { balance } = calculateTimeBank(points, saques);
+            setTotalHours(balance);
+        }
+    }, [points, saques, loading]);
+
+    const dailyBalances = calculateTimeBank(points, saques).dailyBalances;
+    const saquesList = saques.map(saque => ({
+        ...saque,
+        formattedDate: new Date(saque.data_saque).toLocaleDateString('pt-BR'),
+        formattedAmount: formatDuration(-saque.quantidade_minutos)
+    }));
+
 
     if (loading) {
         return (
             <SafeAreaView style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={styles.loadingText}>Carregando registros...</Text>
             </SafeAreaView>
         );
     }
-
-    const renderItem = ({ item }) => {
-        const date = item[0];
-        const dailyPoints = item[1];
-        const isSaqueDay = dailyPoints.some(p => p.origem === 'saque');
-
-        if (isSaqueDay) {
-            const saquePoints = dailyPoints.filter(p => p.origem === 'saque');
-            const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
-            const hasOtherEntries = regularPoints.length > 0;
-
-            return (
-                <View style={[styles.dayContainer, styles.saqueContainer]}>
-                    <Text style={styles.dateHeader}>{date}</Text>
-                    {saquePoints.map((saquePoint) => (
-                        <View key={saquePoint.id} style={styles.saqueItem}>
-                            <Text style={styles.saqueTotal}>Saque de Horas: {formatMinutesToHours(saquePoint.minutos_saque)}</Text>
-                            <Text style={styles.saqueJustificativa}>Motivo: {saquePoint.justificativa_saque}</Text>
-                        </View>
-                    ))}
-                    {hasOtherEntries && (
-                        <>
-                            <Text style={styles.dateHeader}>Jornada do dia:</Text>
-                            {regularPoints.sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time)).map((point, index) => (
-                                <View key={index} style={styles.pointItem}>
-                                    <Text style={styles.pointTime}>{point.time}</Text>
-                                    <Text style={styles.pointDetail}>{point.origem === 'foto' ? 'Registro por foto' : 'Registro manual'}</Text>
-                                </View>
-                            ))}
-                        </>
-                    )}
-                </View>
-            );
-        }
-
-        const isComplete = dailyPoints.length >= REQUIRED_DAILY_POINTS;
-        let dailyHoursText = "Dados Incompletos";
-        let statusStyle = styles.normalStatus;
-
-        if (isComplete) {
-            const { totalDailyMinutes, breakStatus } = calculateDailySummary(dailyPoints);
-            dailyHoursText = formatMinutesToHours(totalDailyMinutes);
-            if (breakStatus === 'short') {
-                statusStyle = styles.shortBreakStatus;
-            } else if (breakStatus === 'long') {
-                statusStyle = styles.longBreakStatus;
-            }
-        }
-
-        return (
-            <View style={[styles.dayContainer, !isComplete && styles.incompleteDay]}>
-                <Text style={styles.dateHeader}>{date}</Text>
-                <Text style={[styles.totalDailyHours, statusStyle]}>Jornada: {dailyHoursText}</Text>
-                {dailyPoints.sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time)).map((point, index) => (
-                    <View key={index} style={styles.pointItem}>
-                        <Text style={styles.pointTime}>{point.time}</Text>
-                        <Text style={styles.pointDetail}>{point.origem === 'foto' ? 'Registro por foto' : 'Registro manual'}</Text>
-                    </View>
-                ))}
-            </View>
-        );
-    };
-
+    
     return (
         <SafeAreaView style={styles.container}>
-            <Text style={styles.screenTitle}>Relatório do Banco de Horas</Text>
-            <View style={styles.summaryBox}>
-                <View style={styles.summaryContent}>
-                    <Text style={styles.summaryLabel}>Total de Horas</Text>
-                    {daysWithIncompletePoints ? (
-                        <Text style={styles.incompleteMessage}>
-                            É necessário registrar as 4 marcações para visualizar seu banco de horas.
-                        </Text>
-                    ) : (
-                        <Text style={[styles.timeBankText, { color: timeBankColor }]}>{formattedTimeBank}</Text>
-                    )}
-                </View>
-                <TouchableOpacity style={styles.withdrawButton} onPress={() => setWithdrawModalVisible(true)}>
-                    <Text style={styles.withdrawButtonText}>Sacar Horas</Text>
-                </TouchableOpacity>
-            </View>
-            <FlatList
-                data={Object.entries(groupedPoints)}
-                renderItem={renderItem}
-                keyExtractor={item => item[0]}
-                style={styles.list}
-            />
+            <ScrollView>
+                <Text style={styles.header}>Banco de Horas</Text>
 
+                <View style={[styles.totalBalance, totalHours >= 0 ? styles.positiveTotal : styles.negativeTotal]}>
+                    <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 20 }}>Saldo Total: {formatDuration(totalHours)}</Text>
+                </View>
+                
+                <Text style={styles.sectionTitle}>Balanço Diário</Text>
+                <FlatList
+                    data={dailyBalances}
+                    keyExtractor={item => item.date}
+                    renderItem={({ item }) => (
+                        <View style={styles.dailyItem}>
+                            <Text style={styles.dailyDate}>{item.date}</Text>
+                            <View style={styles.dailyDetails}>
+                                <Text style={[styles.dailyBalance, item.balance >= 0 ? styles.positiveBalance : styles.negativeBalance]}>
+                                    {formatDuration(item.balance)}
+                                </Text>
+                            </View>
+                        </View>
+                    )}
+                />
+                
+                <Text style={styles.sectionTitle}>Saques Registrados</Text>
+                <FlatList
+                    data={saquesList}
+                    keyExtractor={item => item.id}
+                    renderItem={({ item }) => (
+                        <View style={styles.saqueItem}>
+                            <Text style={styles.saqueDate}>Data: {item.formattedDate}</Text>
+                            <Text style={styles.saqueTotal}>Valor: {item.formattedAmount}</Text>
+                            <Text style={styles.saqueJustificativa}>Justificativa: {item.justificativa}</Text>
+                        </View>
+                    )}
+                    ListEmptyComponent={<Text style={{ textAlign: 'center' }}>Nenhum saque registrado.</Text>}
+                />
+
+                <Button title="Registrar Saque de Horas" onPress={() => setModalVisible(true)} />
+            </ScrollView>
+
+            {/* Modal para Registrar Saque de Horas */}
             <Modal
                 animationType="slide"
                 transparent={true}
-                visible={withdrawModalVisible}
-                onRequestClose={() => setWithdrawModalVisible(false)}
+                visible={modalVisible}
+                onRequestClose={() => setModalVisible(false)}
             >
                 <View style={styles.modalContainer}>
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>Registrar Saque de Horas</Text>
-
-                        <Text style={styles.formLabel}>Data do Saque:</Text>
-                        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dateInputButton}>
-                            <Text style={styles.dateInputText}>{formatDate(withdrawDate)}</Text>
-                        </TouchableOpacity>
                         
-                        {showDatePicker && (
+                        <Text style={styles.formLabel}>Data do Saque:</Text>
+                        {Platform.OS === 'ios' ? (
                             <DateTimePicker
-                                testID="dateTimePicker"
-                                value={withdrawDate}
+                                value={saqueDate}
                                 mode="date"
                                 display="default"
-                                onChange={(event, selectedDate) => {
-                                    setShowDatePicker(Platform.OS === 'ios');
-                                    if (selectedDate) {
-                                        setWithdrawDate(selectedDate);
-                                    }
-                                }}
+                                onChange={onDateChange}
+                            />
+                        ) : (
+                            <TouchableOpacity onPress={showDatepicker} style={styles.dateInputButton}>
+                                <Text style={styles.dateInputText}>{saqueDate.toLocaleDateString('pt-BR')}</Text>
+                            </TouchableOpacity>
+                        )}
+                        {showDatePicker && Platform.OS === 'android' && (
+                            <DateTimePicker
+                                value={saqueDate}
+                                mode="date"
+                                display="default"
+                                onChange={onDateChange}
                             />
                         )}
 
+                        <Text style={styles.formLabel}>Quantidade (minutos):</Text>
                         <TextInput
                             style={styles.input}
-                            placeholder="Horas a Sacar (ex: 2)"
-                            value={hoursToWithdraw}
-                            onChangeText={setHoursToWithdraw}
+                            placeholder="Ex: 30, 60, 120"
                             keyboardType="numeric"
+                            value={saqueAmount}
+                            onChangeText={setSaqueAmount}
                         />
+
+                        <Text style={styles.formLabel}>Justificativa:</Text>
                         <TextInput
-                            style={[styles.input, styles.textArea]}
-                            placeholder="Justificativa (ex: Folga para consulta)"
-                            value={justification}
-                            onChangeText={setJustification}
+                            style={[styles.input, { height: 100 }]}
                             multiline
+                            numberOfLines={4}
+                            value={saqueJustification}
+                            onChangeText={setSaqueJustification}
                         />
-                        <View style={styles.modalButtons}>
-                            <Button title="Cancelar" onPress={() => setWithdrawModalVisible(false)} color="#666" />
-                            <Button title="Confirmar Saque" onPress={handleWithdraw} />
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 15 }}>
+                            <Button title="Confirmar" onPress={addSaqueHoras} />
+                            <Button title="Cancelar" onPress={() => setModalVisible(false)} color="red" />
                         </View>
                     </View>
                 </View>
             </Modal>
         </SafeAreaView>
     );
-}
+};
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
+        padding: 20,
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    loadingText: {
-        marginTop: 10,
-        fontSize: 16,
-        color: '#666',
+    header: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: 20,
     },
-    screenTitle: {
+    totalBalance: {
         fontSize: 24,
         fontWeight: 'bold',
-        marginVertical: 20,
         textAlign: 'center',
-    },
-    summaryBox: {
-        width: '90%',
-        backgroundColor: '#fff',
-        padding: 20,
-        borderRadius: 10,
         marginBottom: 20,
-        elevation: 2,
+        padding: 10,
+        borderRadius: 8,
+    },
+    positiveTotal: {
+        color: '#fff',
+        backgroundColor: '#4CAF50',
+    },
+    negativeTotal: {
+        color: '#fff',
+        backgroundColor: '#F44336',
+    },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginTop: 10,
+        marginBottom: 10,
+    },
+    dailyItem: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
+        backgroundColor: '#fff',
+        padding: 15,
+        borderRadius: 8,
+        marginBottom: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
-    summaryContent: {
-        alignItems: 'center',
+    dailyDate: {
+        fontSize: 16,
+        fontWeight: 'bold',
         flex: 1,
     },
-    summaryLabel: {
-        fontSize: 16,
-        color: '#666',
+    dailyDetails: {
+        flex: 2,
+        alignItems: 'flex-end',
     },
-    timeBankText: {
-        fontSize: 36,
+    positiveBalance: {
+        color: '#4CAF50',
         fontWeight: 'bold',
     },
-    incompleteMessage: {
-        fontSize: 16,
-        textAlign: 'center',
-        color: '#FF9800',
-        fontWeight: 'bold',
-    },
-    withdrawButton: {
-        backgroundColor: '#007AFF',
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 5,
-    },
-    withdrawButtonText: {
-        color: '#fff',
-        fontWeight: 'bold',
-    },
-    list: {
-        width: '100%',
-    },
-    dayContainer: {
-        backgroundColor: '#fff',
-        marginHorizontal: 10,
-        marginBottom: 10,
-        padding: 15,
-        borderRadius: 10,
-        elevation: 1,
-    },
-    incompleteDay: {
-        borderColor: '#FF9800',
-        borderWidth: 2,
-    },
-    dateHeader: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 5,
-    },
-    totalDailyHours: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        marginBottom: 10,
-    },
-    normalStatus: {
-        color: '#999',
-    },
-    shortBreakStatus: {
-        color: '#03A9F4',
-    },
-    longBreakStatus: {
+    negativeBalance: {
         color: '#F44336',
+        fontWeight: 'bold',
     },
-    pointItem: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 5,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-    },
-    pointTime: {
-        fontSize: 16,
-        fontWeight: '500',
-    },
-    pointDetail: {
-        fontSize: 14,
-        color: '#666',
-    },
-    saqueContainer: {
+    // Estilos do saque
+    saqueItem: {
+        marginBottom: 10,
+        padding: 10,
         backgroundColor: '#E0F2F1',
-        borderColor: '#00BFA5',
-        borderWidth: 1,
+        borderRadius: 8,
+    },
+    saqueDate: {
+        fontSize: 14,
+        color: '#757575',
+        marginBottom: 5,
     },
     saqueTotal: {
         fontSize: 16,
@@ -507,12 +445,6 @@ const styles = StyleSheet.create({
     saqueJustificativa: {
         fontSize: 14,
         color: '#424242',
-    },
-    saqueItem: {
-        marginBottom: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#B2DFDB',
-        paddingBottom: 5,
     },
     // Estilos do Modal
     modalContainer: {
@@ -555,15 +487,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         padding: 12,
         borderRadius: 8,
-        fontSize: 16,
         marginBottom: 15,
     },
-    textArea: {
-        minHeight: 80,
-        textAlignVertical: 'top',
-    },
-    modalButtons: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-    },
 });
+
+export default ReportScreen;

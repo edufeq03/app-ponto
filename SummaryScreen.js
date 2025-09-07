@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView } from 'react-native';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from './firebase_config';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
+import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
+import { db, auth } from './firebase_config'; // Importe 'auth'
+
+const { width } = Dimensions.get('window');
 
 const SummaryScreen = () => {
     const [summary, setSummary] = useState([]);
@@ -31,7 +33,7 @@ const SummaryScreen = () => {
 
         // Adiciona a cor de texto noturna
         if (pointData.isOvernight) {
-            textStyles.push(styles.overnightCell);
+            textStyles.push(styles.overnightCellText);
         }
 
         // Adiciona a cor de texto editada
@@ -40,103 +42,66 @@ const SummaryScreen = () => {
         }
         
         // Adiciona a cor de texto da justificativa
-        if (pointData.hasJustification) {
+        if (pointData.justificativa) {
             textStyles.push(styles.justificationCellText);
         }
 
-        const displayedTime = `${pointData.time}${pointData.hasJustification ? '*' : ''}`;
-
         return (
             <Text style={[...cellStyles, ...textStyles]}>
-                {displayedTime}
+                {formatTime(pointData.timestamp_ponto)}
+                {pointData.isEdited && ' *'}
+                {pointData.justificativa && ' J'}
             </Text>
         );
     };
-
-    const processPoints = (points) => {
-        const dailySummary = {};
-        
-        // Agrupar pontos por workday_date (a nova lógica)
-        points.forEach(point => {
-            if (!point.workday_date) return;
-            const date = point.workday_date;
-            if (!dailySummary[date]) {
-                dailySummary[date] = [];
-            }
-            dailySummary[date].push(point);
-        });
-
-        const sortedDates = Object.keys(dailySummary).sort((a, b) => {
-            const [dayA, monthA, yearA] = a.split('/').map(Number);
-            const [dayB, monthB, yearB] = b.split('/').map(Number);
-            return new Date(yearB, monthB - 1, dayB) - new Date(yearA, monthA - 1, dayA);
-        });
-
-        const finalSummary = sortedDates.map(date => {
-            const pointsForDay = dailySummary[date];
-            pointsForDay.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
-
-            const times = {};
-            if (pointsForDay[0]) {
-                times.entrada1 = {
-                    time: formatTime(pointsForDay[0].timestamp_ponto),
-                    origem: pointsForDay[0].origem,
-                    isOvernight: pointsForDay[0].date !== pointsForDay[0].workday_date,
-                    isEdited: pointsForDay[0].editado,
-                    hasJustification: !!pointsForDay[0].justificativa_nome
-                };
-            }
-            if (pointsForDay[1]) {
-                times.saida1 = {
-                    time: formatTime(pointsForDay[1].timestamp_ponto),
-                    origem: pointsForDay[1].origem,
-                    isOvernight: pointsForDay[1].date !== pointsForDay[1].workday_date,
-                    isEdited: pointsForDay[1].editado,
-                    hasJustification: !!pointsForDay[1].justificativa_nome
-                };
-            }
-            if (pointsForDay[2]) {
-                times.entrada2 = {
-                    time: formatTime(pointsForDay[2].timestamp_ponto),
-                    origem: pointsForDay[2].origem,
-                    isOvernight: pointsForDay[2].date !== pointsForDay[2].workday_date,
-                    isEdited: pointsForDay[2].editado,
-                    hasJustification: !!pointsForDay[2].justificativa_nome
-                };
-            }
-            if (pointsForDay[3]) {
-                times.saida2 = {
-                    time: formatTime(pointsForDay[3].timestamp_ponto),
-                    origem: pointsForDay[3].origem,
-                    isOvernight: pointsForDay[3].date !== pointsForDay[3].workday_date,
-                    isEdited: pointsForDay[3].editado,
-                    hasJustification: !!pointsForDay[3].justificativa_nome
-                };
-            }
-
-            return {
-                id: date,
-                date: date,
-                times
-            };
-        });
-
-        setSummary(finalSummary);
-        setLoading(false);
-    };
-
+    
     useEffect(() => {
-        const q = query(collection(db, 'pontos'), orderBy('workday_date', 'desc'), orderBy('timestamp_ponto', 'desc'));
-
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const fetchedPoints = [];
-            querySnapshot.forEach((doc) => {
-                fetchedPoints.push({ id: doc.id, ...doc.data() });
-            });
-            processPoints(fetchedPoints);
-        }, (error) => {
-            console.error("Erro ao carregar pontos:", error);
+        const user = auth.currentUser;
+        if (!user) {
             setLoading(false);
+            setSummary([]);
+            Alert.alert("Aviso", "Usuário não autenticado. Nenhum resumo para exibir.");
+            return;
+        }
+
+        // Altera a query para filtrar pelo UID do usuário logado
+        const q = query(
+            collection(db, 'pontos'),
+            where('usuario_id', '==', user.uid),
+            orderBy('timestamp_ponto', 'desc')
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const pointsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            const groupedByDay = pointsData.reduce((acc, point) => {
+                const date = new Date(point.timestamp_ponto).toLocaleDateString('pt-BR');
+                if (!acc[date]) {
+                    acc[date] = [];
+                }
+                acc[date].push(point);
+                return acc;
+            }, {});
+
+            const dailySummary = Object.entries(groupedByDay).map(([date, points]) => {
+                const sortedPoints = points.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
+                const dailyData = {
+                    date,
+                    ponto1: sortedPoints[0] || null,
+                    ponto2: sortedPoints[1] || null,
+                    ponto3: sortedPoints[2] || null,
+                    ponto4: sortedPoints[3] || null,
+                    isComplete: sortedPoints.length >= 4,
+                };
+                return dailyData;
+            });
+
+            setSummary(dailySummary);
+            setLoading(false);
+        }, (error) => {
+            console.error("Erro ao carregar os dados:", error);
+            setLoading(false);
+            Alert.alert("Erro", "Não foi possível carregar o resumo mensal.");
         });
 
         return () => unsubscribe();
@@ -144,40 +109,35 @@ const SummaryScreen = () => {
 
     if (loading) {
         return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#0000ff" />
-                <Text>Preparando resumo...</Text>
-            </View>
+            <SafeAreaView style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#007AFF" />
+            </SafeAreaView>
         );
     }
 
     return (
-        <SafeAreaView style={styles.safeArea}>
+        <SafeAreaView style={styles.container}>
             <Text style={styles.header}>Resumo Mensal</Text>
-            <Text style={styles.legend}>
-                <Text style={styles.manualCellText}>Fundo amarelo:</Text> ponto inserido manualmente.{"\n"}
-                <Text style={styles.overnightCellText}>Texto azul:</Text> ponto noturno (após a meia-noite).{"\n"}
-                <Text style={styles.editedCellText}>Texto vermelho:</Text> ponto editado após a leitura da foto.{"\n"}
-                <Text style={styles.justificationCellText}>* Asterisco:</Text> nome justificado após erro de leitura.
-            </Text>
+            <Text style={styles.legend}>Células cinzas: Ponto manual. * = Editado. J = Com justificativa.</Text>
+            
             <View style={styles.table}>
                 <View style={styles.tableRowHeader}>
-                    <Text style={[styles.tableHeader, styles.dateCol]}>Dia</Text>
+                    <Text style={[styles.tableHeader, styles.dateCol]}>Data</Text>
                     <Text style={[styles.tableHeader, styles.col]}>Entrada</Text>
                     <Text style={[styles.tableHeader, styles.col]}>Saída</Text>
-                    <Text style={[styles.tableHeader, styles.col]}>Entrada 2</Text>
-                    <Text style={[styles.tableHeader, styles.col]}>Saída 2</Text>
+                    <Text style={[styles.tableHeader, styles.col]}>Retorno</Text>
+                    <Text style={[styles.tableHeader, styles.col]}>Saída</Text>
                 </View>
                 <FlatList
                     data={summary}
-                    keyExtractor={(item) => item.id}
+                    keyExtractor={(item) => item.date}
                     renderItem={({ item }) => (
-                        <View style={styles.tableRow}>
+                        <View style={[styles.tableRow, !item.isComplete && styles.incompleteRow]}>
                             <Text style={[styles.tableCell, styles.dateCol]}>{item.date}</Text>
-                            {renderTimeCell(item.times.entrada1)}
-                            {renderTimeCell(item.times.saida1)}
-                            {renderTimeCell(item.times.entrada2)}
-                            {renderTimeCell(item.times.saida2)}
+                            {renderTimeCell(item.ponto1)}
+                            {renderTimeCell(item.ponto2)}
+                            {renderTimeCell(item.ponto3)}
+                            {renderTimeCell(item.ponto4)}
                         </View>
                     )}
                 />
@@ -187,10 +147,10 @@ const SummaryScreen = () => {
 };
 
 const styles = StyleSheet.create({
-    safeArea: {
+    container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
-        paddingHorizontal: 10,
+        paddingHorizontal: 20, 
     },
     loadingContainer: {
         flex: 1,
@@ -210,22 +170,6 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         marginBottom: 10,
         fontStyle: 'italic',
-    },
-    manualCellText: {
-        fontWeight: 'bold',
-        color: '#555',
-    },
-    overnightCellText: {
-        fontWeight: 'bold',
-        color: '#007AFF', // Azul para a legenda
-    },
-    editedCellText: {
-        fontWeight: 'bold',
-        color: 'red', // Vermelho para a legenda
-    },
-    justificationCellText: {
-        fontWeight: 'bold',
-        color: 'purple', // Novo para a legenda
     },
     table: {
         borderWidth: 1,
@@ -262,12 +206,23 @@ const styles = StyleSheet.create({
     col: {
         flex: 1,
     },
-    manualCell: {
-        backgroundColor: '#FFFACD',
+    incompleteRow: {
+        backgroundColor: '#FFFBEA', 
     },
-    overnightCell: {
-        color: '#007AFF',
+    manualCell: {
+        backgroundColor: '#E0E0E0',
+    },
+    overnightCellText: {
         fontWeight: 'bold',
+        color: '#007AFF',
+    },
+    editedCellText: {
+        fontWeight: 'bold',
+        color: 'red',
+    },
+    justificationCellText: {
+        fontWeight: 'bold',
+        color: 'purple',
     },
 });
 

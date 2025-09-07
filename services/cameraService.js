@@ -1,6 +1,6 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import axios from 'axios';
-import { GOOGLE_CLOUD_VISION_API_KEY } from '../api_config';
+import { GOOGLE_CLOUD_VISION_API_KEY } from '../config/api_config';
 
 /**
  * Processa a imagem e a envia para a API do Google Vision.

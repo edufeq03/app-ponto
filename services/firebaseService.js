@@ -1,6 +1,6 @@
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, auth } from '../firebase_config';
+import { db, storage, auth } from '../config/firebase_config';
 
 /**
  * Salva a imagem no Firebase Storage e registra o ponto no Firestore.

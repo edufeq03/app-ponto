@@ -4,8 +4,8 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Importe os novos serviços
-import { processImageWithVision } from './services/cameraService';
-import { savePointData } from './services/firebaseService';
+import { processImageWithVision } from '../services/cameraService';
+import { savePointData } from '../services/firebaseService';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 

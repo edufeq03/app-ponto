@@ -76,12 +76,6 @@ export default function ReportScreen() {
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 .filter(doc => (doc.origem === 'saque' && doc.data_saque) || (doc.origem !== 'saque' && doc.workday_date && doc.time));
 
-            // DEBUGGING: Log de todos os pontos encontrados
-            console.log("------------------- DEBUGGING: Dados do Firebase -------------------");
-            console.log("Total de pontos encontrados:", pointsList.length);
-            console.log(pointsList);
-            console.log("----------------------------------------------------------------------");
-
             pointsList.sort((a, b) => {
                 const dateA = a.origem === 'saque' ? parseDate(a.data_saque) : parseDate(a.workday_date, a.time);
                 const dateB = b.origem === 'saque' ? parseDate(b.data_saque) : parseDate(b.workday_date, b.time);
@@ -91,7 +85,7 @@ export default function ReportScreen() {
                 if (!dateB) return -1;
                 return dateA - dateB;
             });
-
+            
             setPoints(pointsList);
         } catch (e) {
             console.error("Erro ao buscar os documentos: ", e);
@@ -100,10 +94,6 @@ export default function ReportScreen() {
             setLoading(false);
         }
     };
-
-    useEffect(() => {
-        fetchPoints();
-    }, []);
 
     const groupPointsByWorkday = (points) => {
         const grouped = {};
@@ -114,30 +104,15 @@ export default function ReportScreen() {
             }
             grouped[date].push(point);
         });
-        // DEBUGGING: Log dos pontos agrupados
-        console.log("------------------- DEBUGGING: Pontos Agrupados -------------------");
-        console.log(grouped);
-        console.log("----------------------------------------------------------------------");
         return grouped;
     };
-
-    const groupedPoints = groupPointsByWorkday(points);
-    
-    // DEBUGGING: Verificação de dias com pontos incompletos
-    const daysWithIncompletePoints = Object.values(groupedPoints).some(
-        (dailyPoints) => dailyPoints.length >= 1 && dailyPoints.some(p => p.origem !== 'saque' && dailyPoints.filter(p => p.origem !== 'saque').length < REQUIRED_DAILY_POINTS)
-    );
-    console.log("------------------- DEBUGGING: Resumo -------------------");
-    console.log("Dias com pontos incompletos:", daysWithIncompletePoints);
-    console.log("----------------------------------------------------------");
-
 
     const calculateDailySummary = (dailyPoints) => {
         let totalDailyMinutes = 0;
         let breakStatus = 'normal';
         let isSaque = false;
 
-        const regularPoints = dailyPoints.filter(p => p.origem !== 'saque');
+        const regularPoints = dailyPoints.filter(p => p.origem !== 'saque').sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time));
         const saquePoints = dailyPoints.filter(p => p.origem === 'saque'); 
 
         if (regularPoints.length >= REQUIRED_DAILY_POINTS) {
@@ -171,7 +146,7 @@ export default function ReportScreen() {
         return { totalDailyMinutes, breakStatus, isSaque };
     };
 
-    const calculateTimeBank = () => {
+    const calculateTimeBank = (groupedPoints) => {
         let totalMinutesWorked = 0;
         let totalMinutesRequired = 0;
 
@@ -187,22 +162,27 @@ export default function ReportScreen() {
                 }
             }
         });
-
-        const bankMinutes = totalMinutesWorked - totalMinutesRequired;
         
-        // DEBUGGING: Log do cálculo final
-        console.log("------------------- DEBUGGING: Saldo do Banco -------------------");
-        console.log("Total de minutos trabalhados:", totalMinutesWorked);
-        console.log("Total de minutos necessários:", totalMinutesRequired);
-        console.log("Saldo final em minutos:", bankMinutes);
-        console.log("----------------------------------------------------------------------");
-
-        return bankMinutes;
+        return totalMinutesWorked - totalMinutesRequired;
     };
 
-    const timeBankInMinutes = calculateTimeBank();
-    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
-    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
+    const [groupedPoints, setGroupedPoints] = useState({});
+    const [timeBankInMinutes, setTimeBankInMinutes] = useState(0);
+
+    useEffect(() => {
+        const loadData = async () => {
+            await fetchPoints();
+        };
+        loadData();
+    }, []);
+
+    useEffect(() => {
+        if (points.length > 0) {
+            const grouped = groupPointsByWorkday(points);
+            setGroupedPoints(grouped);
+            setTimeBankInMinutes(calculateTimeBank(grouped));
+        }
+    }, [points]);
 
     const handleWithdraw = async () => {
         if (!hoursToWithdraw || !justification) {
@@ -246,6 +226,12 @@ export default function ReportScreen() {
             Alert.alert("Erro", "Falha ao registrar o saque. Tente novamente.");
         }
     };
+    
+    const formattedTimeBank = formatMinutesToHours(timeBankInMinutes);
+    const timeBankColor = timeBankInMinutes >= 0 ? '#4CAF50' : '#F44336';
+    const daysWithIncompletePoints = Object.values(groupedPoints).some(
+        (dailyPoints) => dailyPoints.some(p => p.origem !== 'saque') && dailyPoints.filter(p => p.origem !== 'saque').length < REQUIRED_DAILY_POINTS
+    );
 
     if (loading) {
         return (
@@ -278,7 +264,7 @@ export default function ReportScreen() {
                     {hasOtherEntries && (
                         <>
                             <Text style={styles.dateHeader}>Jornada do dia:</Text>
-                            {regularPoints.map((point, index) => (
+                            {regularPoints.sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time)).map((point, index) => (
                                 <View key={index} style={styles.pointItem}>
                                     <Text style={styles.pointTime}>{point.time}</Text>
                                     <Text style={styles.pointDetail}>{point.origem === 'foto' ? 'Registro por foto' : 'Registro manual'}</Text>
@@ -308,7 +294,7 @@ export default function ReportScreen() {
             <View style={[styles.dayContainer, !isComplete && styles.incompleteDay]}>
                 <Text style={styles.dateHeader}>{date}</Text>
                 <Text style={[styles.totalDailyHours, statusStyle]}>Jornada: {dailyHoursText}</Text>
-                {dailyPoints.map((point, index) => (
+                {dailyPoints.sort((a,b) => timeToMinutes(a.time) - timeToMinutes(b.time)).map((point, index) => (
                     <View key={index} style={styles.pointItem}>
                         <Text style={styles.pointTime}>{point.time}</Text>
                         <Text style={styles.pointDetail}>{point.origem === 'foto' ? 'Registro por foto' : 'Registro manual'}</Text>

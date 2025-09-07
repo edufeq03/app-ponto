@@ -1,17 +1,14 @@
 // screens/CameraScreen.js
-import { useState, useRef } from 'react';
-import { Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { auth } from '../config/firebase_config';
-import { findDocumentBoundingBox, analyzeImage, extractDataFromText, checkIfDuplicate, uploadImage, sendToFirestore } from '../services/cameraService.js';
-// Importa os estilos do arquivo separado
+import { processImage, checkIfDuplicate, savePointData } from '../services/cameraService.js';
 import styles from './CameraScreenStyles';
-
-const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
-
-const RECEIPT_ASPECT_RATIO = 5.5 / 4; // 1.375 (horizontal)
 
 export default function CameraScreen({ navigation }) {
     const [cameraModalVisible, setCameraModalVisible] = useState(false);
@@ -26,22 +23,58 @@ export default function CameraScreen({ navigation }) {
     const [justificationModalVisible, setJustificationModalVisible] = useState(false);
     const [justification, setJustification] = useState('');
 
-    const CURRENT_USER_NAME = "NOME DO USUÁRIO TESTE";
+    const [date, setDate] = useState(new Date());
+    const [time, setTime] = useState(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [showTimePicker, setShowTimePicker] = useState(false);
+    const [selectedJustification, setSelectedJustification] = useState('Inclusão automática');
+    const [customJustification, setCustomJustification] = useState('');
+
+    const justificationOptions = [
+        'Inclusão automática',
+        'Leitura incorreta do OCR',
+        'Outro (especificar)'
+    ];
+
+    // const CURRENT_USER_NAME = "NOME DO USUÁRIO TESTE";
+
+    const user = auth.currentUser;
+    const CURRENT_USER_NAME = user?.displayName || 'Nome não encontrado';
+
+    // Funções do DateTimePicker
+    const onDateChange = (event, selectedDate) => {
+        const currentDate = selectedDate || date;
+        setShowDatePicker(Platform.OS === 'ios');
+        setDate(currentDate);
+        setExtractedData(prev => ({ ...prev, date: currentDate.toLocaleDateString('pt-BR') }));
+    };
+
+    const onTimeChange = (event, selectedTime) => {
+        const currentTime = selectedTime || time;
+        setShowTimePicker(Platform.OS === 'ios');
+        setTime(currentTime);
+        setExtractedData(prev => ({ ...prev, time: currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }));
+    };
 
     async function handleConfirmData() {
         setIsSaving(true);
         try {
-            if (!extractedData.date || !extractedData.time) {
+            const finalData = { ...extractedData };
+            const justificationText = selectedJustification === 'Outro (especificar)' ? customJustification : selectedJustification;
+
+            if (!finalData.date || !finalData.time) {
                 Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, tente novamente ou insira manualmente.");
                 setValidationModalVisible(false);
                 return;
             }
 
-            const finalData = { ...extractedData };
+            // Verifica se os dados foram editados
             if (finalData.date !== originalExtractedData.date || finalData.time !== originalExtractedData.time) {
                 finalData.editado = true;
                 finalData.data_original_ocr = originalExtractedData.date;
                 finalData.hora_original_ocr = originalExtractedData.time;
+            } else {
+                finalData.editado = false;
             }
 
             const isDuplicate = await checkIfDuplicate(finalData);
@@ -71,7 +104,7 @@ export default function CameraScreen({ navigation }) {
                 return;
             }
             
-            await savePointAndImage(finalData);
+            await savePointAndImage(finalData, justificationText);
         } finally {
             setIsSaving(false);
         }
@@ -80,8 +113,7 @@ export default function CameraScreen({ navigation }) {
     const savePointAndImage = async (data, justification = null) => {
         setIsSaving(true);
         try {
-            const photoURL = await uploadImage(data.photoUri);
-            const success = await sendToFirestore(data, photoURL, justification);
+            const success = await savePointData(data.photoUri, { ...data, justification_ocr: justification });
             if (success) {
                 Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
             } else {
@@ -119,12 +151,13 @@ export default function CameraScreen({ navigation }) {
             });
             setCameraModalVisible(false);
             
-            // Chama a função de serviço para processar a imagem
             const { originalText: detectedText, extractedData: extracted } = await processImage(photo.uri);
 
             setExtractedData({ ...extracted, photoUri: photo.uri });
             setOriginalExtractedData(extracted);
             setOriginalText(detectedText);
+            setDate(new Date()); // Reseta a data para a atual
+            setTime(new Date()); // Reseta a hora para a atual
             setProcessing(false);
             setValidationModalVisible(true);
         }
@@ -173,22 +206,56 @@ export default function CameraScreen({ navigation }) {
                                 editable={false}
                             />
                         </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Data:</Text>
+                        
+                        <Text style={styles.formLabel}>Data:</Text>
+                        <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.pickerButton}>
+                            <Text style={styles.pickerButtonText}>{extractedData.date || 'Selecione a Data'}</Text>
+                        </TouchableOpacity>
+                        {showDatePicker && (
+                            <DateTimePicker
+                                testID="datePicker"
+                                value={date}
+                                mode="date"
+                                display="default"
+                                onChange={onDateChange}
+                            />
+                        )}
+
+                        <Text style={styles.formLabel}>Hora:</Text>
+                        <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.pickerButton}>
+                            <Text style={styles.pickerButtonText}>{extractedData.time || 'Selecione a Hora'}</Text>
+                        </TouchableOpacity>
+                        {showTimePicker && (
+                            <DateTimePicker
+                                testID="timePicker"
+                                value={time}
+                                mode="time"
+                                display="default"
+                                onChange={onTimeChange}
+                            />
+                        )}
+
+                        <Text style={styles.formLabel}>Justificativa:</Text>
+                        <View style={styles.input}>
+                            <Picker
+                                selectedValue={selectedJustification}
+                                onValueChange={(itemValue) => setSelectedJustification(itemValue)}
+                            >
+                                {justificationOptions.map((option, index) => (
+                                    <Picker.Item key={index} label={option} value={option} />
+                                ))}
+                            </Picker>
+                        </View>
+
+                        {selectedJustification === 'Outro (especificar)' && (
                             <TextInput
                                 style={styles.input}
-                                onChangeText={(text) => setExtractedData({ ...extractedData, date: text })}
-                                value={extractedData.date}
+                                value={customJustification}
+                                onChangeText={setCustomJustification}
+                                placeholder="Descreva a justificativa"
                             />
-                        </View>
-                        <View style={styles.formGroup}>
-                            <Text style={styles.formLabel}>Hora:</Text>
-                            <TextInput
-                                style={styles.input}
-                                onChangeText={(text) => setExtractedData({ ...extractedData, time: text })}
-                                value={extractedData.time}
-                            />
-                        </View>
+                        )}
+
                         <Text style={styles.originalTextLabel}>Texto original do comprovante:</Text>
                         <Text style={styles.originalText}>{originalText}</Text>
                     </ScrollView>

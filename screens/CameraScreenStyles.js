@@ -3,7 +3,7 @@ import { StyleSheet, Dimensions } from 'react-native';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 
-const RECEIPT_ASPECT_RATIO = 5.5 / 4; // 1.375 (horizontal)
+const RECEIPT_ASPECT_RATIO = 5.5 / 4;
 
 const frameWidth = windowWidth * 0.9;
 const frameHeight = frameWidth / RECEIPT_ASPECT_RATIO;
@@ -121,6 +121,19 @@ const styles = StyleSheet.create({
         padding: 10,
         borderRadius: 5,
         backgroundColor: '#fff',
+    },
+    pickerButton: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 5,
+        padding: 10,
+        marginBottom: 15,
+        alignItems: 'center',
+    },
+    pickerButtonText: {
+        fontSize: 16,
+        color: '#000',
     },
     originalTextLabel: {
         fontSize: 14,

@@ -8,17 +8,19 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 // Importe as telas
-import HomeScreen from './HomeScreen';
-import RegisterSelectionScreen from './RegisterSelectionScreen';
-import ManualEntryScreen from './ManualEntryScreen';
-import CameraScreen from './CameraScreen';
-import ReportScreen from './ReportScreen';
-import HistorySelectionScreen from './HistorySelectionScreen';
-import HistoryScreen from './HistoryScreen';
-import SummaryScreen from './SummaryScreen';
-import LoginScreen from './LoginScreen';
-import SignUpScreen from './SignUpScreen';
-import { auth } from './firebase_config';
+import HomeScreen from './screens/HomeScreen';
+import RegisterSelectionScreen from './screens/RegisterSelectionScreen';
+import ManualEntryScreen from './screens/ManualEntryScreen';
+import CameraScreen from './screens/CameraScreen';
+import ReportScreen from './screens/ReportScreen';
+import HistorySelectionScreen from './screens/HistorySelectionScreen';
+import HistoryScreen from './screens/HistoryScreen';
+import SummaryScreen from './screens/SummaryScreen';
+import LoginScreen from './screens/LoginScreen';
+import SignUpScreen from './screens/SignUpScreen';
+
+// Dados para conexao Firebase
+import { auth } from './config/firebase_config';
 
 const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, FlatList, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from './firebase_config';
+import { db } from './config/firebase_config';
 
 const TimeBankScreen = () => {
     const [points, setPoints] = useState([]);

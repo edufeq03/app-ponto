@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal } from 'react-native';
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where } from 'firebase/firestore';
-import { db, auth } from './firebase_config'; // Importe 'auth'
+import { db, auth } from './config/firebase_config'; // Importe 'auth'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 

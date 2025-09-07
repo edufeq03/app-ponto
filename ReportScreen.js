@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, FlatList, ActivityIndicator, SafeAreaView, Alert, Modal, TextInput, Button, TouchableOpacity, ScrollView, Platform } from 'react-native';
-import { collection, query, getDocs, addDoc, where } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, where, orderBy } from 'firebase/firestore';
 import { db, auth } from './firebase_config'; // Importe 'auth'
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -9,9 +9,6 @@ const DAILY_WORK_HOURS = 8;
 const REQUIRED_DAILY_POINTS = 4;
 const SHORT_BREAK_THRESHOLD_MINUTES = 50;
 const LONG_BREAK_THRESHOLD_MINUTES = 65;
-
-// Remova o nome fixo, pois usaremos o UID do Firebase Auth
-// const CURRENT_USER_NAME = "EDUARDO TARGINE CAPELLA";
 
 // Função utilitária para converter HH:MM em minutos totais
 const timeToMinutes = (time) => {
@@ -252,7 +249,6 @@ const ReportScreen = () => {
     
     return (
         <SafeAreaView style={styles.container}>
-            <ScrollView>
                 <Text style={styles.header}>Banco de Horas</Text>
 
                 <View style={[styles.totalBalance, totalHours >= 0 ? styles.positiveTotal : styles.negativeTotal]}>
@@ -260,6 +256,7 @@ const ReportScreen = () => {
                 </View>
                 
                 <Text style={styles.sectionTitle}>Balanço Diário</Text>
+                {/* Removemos o ScrollView para evitar conflito com a FlatList */}
                 <FlatList
                     data={dailyBalances}
                     keyExtractor={item => item.date}
@@ -290,7 +287,6 @@ const ReportScreen = () => {
                 />
 
                 <Button title="Registrar Saque de Horas" onPress={() => setModalVisible(true)} />
-            </ScrollView>
 
             {/* Modal para Registrar Saque de Horas */}
             <Modal

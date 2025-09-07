@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions, Alert } from 'react-native';
 import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
 import { db, auth } from './firebase_config'; // Importe 'auth'
 

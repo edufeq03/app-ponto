@@ -5,169 +5,166 @@ import { db, auth } from '../config/firebase_config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-const HistoryScreen = ({ navigation }) => {
-  const [points, setPoints] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
-  
-  const isMounted = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  const handleDeletePoint = async (pointId) => {
-    Alert.alert(
-      "Confirmar Exclusão",
-      "Tem certeza de que deseja excluir este registro de ponto?",
-      [
-        {
-          text: "Cancelar",
-          style: "cancel"
-        },
-        {
-          text: "Excluir",
-          onPress: async () => {
-            try {
-              const pointDoc = doc(db, 'pontos', pointId);
-              await deleteDoc(pointDoc);
-              Alert.alert("Sucesso", "O registro de ponto foi excluído.");
-            } catch (error) {
-              console.error("Erro ao excluir o ponto:", error);
-              Alert.alert("Erro", "Não foi possível excluir o ponto. Tente novamente.");
-            }
-          },
-          style: "destructive"
-        }
-      ]
+// Move o renderItem para fora do componente para evitar recriação a cada render
+const renderItem = ({ item, handleDeletePoint, handleViewImage }) => {
+    return (
+        <View style={styles.pointItem}>
+            <View style={styles.textContainer}>
+                <Text style={styles.itemText}>Nome: {item.name || 'Nome não registrado'}</Text>
+                <Text style={styles.itemText}>Data: {item.date || 'Data não registrada'}</Text>
+                <Text style={styles.itemText}>Hora: {item.time || 'Hora não registrada'}</Text>
+                <Text style={styles.itemText}>Justificativa: {item.justification_ocr || 'Nenhuma'}</Text>
+                <Text style={styles.timestampText}>
+                    Registro: {item.timestamp_salvo ? new Date(item.timestamp_salvo).toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }) : 'Data inválida'}
+                </Text>
+            </View>
+            <View style={styles.actionsContainer}>
+                {item.image_url && (
+                    <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
+                        <Ionicons name="image-outline" size={24} color="#007AFF" />
+                    </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+                    <Ionicons name="trash-outline" size={24} color="red" />
+                </TouchableOpacity>
+            </View>
+        </View>
     );
-  };
+};
 
-  const handleViewImage = (imageURL) => {
-    setSelectedImage(imageURL);
-    setModalVisible(true);
-  };
+const HistoryScreen = ({ navigation }) => {
+    const [points, setPoints] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [selectedImage, setSelectedImage] = useState(null);
 
-  useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      if (isMounted.current) {
-        setLoading(false);
-      }
-      return;
+    // O ref para o isMounted é uma boa prática para evitar warnings
+    const isMounted = useRef(true);
+
+    useEffect(() => {
+        const user = auth.currentUser;
+        if (!user) {
+            if (isMounted.current) {
+                setLoading(false);
+            }
+            return;
+        }
+
+        const userId = user.uid;
+
+        const pointsQuery = query(
+            collection(db, 'pontos'),
+            where('usuario_id', '==', userId),
+            orderBy('timestamp_salvo', 'desc')
+        );
+
+        // onSnapshot "ouve" em tempo real por mudanças na coleção
+        const unsubscribe = onSnapshot(pointsQuery, (snapshot) => {
+            if (!isMounted.current) return;
+            const fetchedPoints = snapshot.docs.map(doc => {
+                const data = doc.data();
+                // Correção: a data é salva como string, então removemos o .toDate()
+                const timestamp = data.timestamp_salvo ? new Date(data.timestamp_salvo) : null;
+
+                return {
+                    id: doc.id,
+                    ...data,
+                    timestamp_salvo: timestamp
+                };
+            });
+            setPoints(fetchedPoints);
+            setLoading(false);
+        }, (error) => {
+            if (!isMounted.current) return;
+            console.error("Erro ao buscar dados:", error);
+            setLoading(false);
+            Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
+        });
+
+        // Limpeza do listener quando o componente for desmontado
+        return () => {
+            isMounted.current = false;
+            unsubscribe();
+        };
+    }, []);
+
+    const handleDeletePoint = async (pointId) => {
+        Alert.alert(
+            "Confirmar Exclusão",
+            "Tem certeza de que deseja excluir este registro de ponto?",
+            [
+                {
+                    text: "Cancelar",
+                    style: "cancel"
+                },
+                {
+                    text: "Excluir",
+                    onPress: async () => {
+                        try {
+                            const pointDoc = doc(db, 'pontos', pointId);
+                            await deleteDoc(pointDoc);
+                            Alert.alert("Sucesso", "O registro de ponto foi excluído.");
+                        } catch (error) {
+                            console.error("Erro ao excluir o ponto:", error);
+                            Alert.alert("Erro", "Não foi possível excluir o ponto. Tente novamente.");
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
+    };
+
+    const handleViewImage = (imageURL) => {
+        setSelectedImage(imageURL);
+        setModalVisible(true);
+    };
+
+    if (loading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+        );
     }
 
-    const userId = user.uid;
-    
-    const pointsQuery = query(
-      collection(db, 'pontos'),
-      where('usuario_id', '==', userId),
-      orderBy('timestamp_ponto', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(pointsQuery, (snapshot) => {
-      if (!isMounted.current) return;
-
-      const fetchedPoints = snapshot.docs.map(doc => {
-        const data = doc.data();
-        let timestamp = null;
-        
-        if (data.timestamp_ponto && typeof data.timestamp_ponto.toDate === 'function') {
-          timestamp = data.timestamp_ponto.toDate();
-        } else {
-          console.warn(`[AVISO] Documento com ID ${doc.id} tem timestamp_ponto inválido. Valor:`, data.timestamp_ponto);
-        }
-
-        return {
-          id: doc.id,
-          ...data,
-          timestamp_ponto: timestamp
-        };
-      });
-      setPoints(fetchedPoints);
-      setLoading(false);
-    }, (error) => {
-      if (!isMounted.current) return;
-      console.error("Erro ao buscar dados:", error);
-      setLoading(false);
-      Alert.alert("Erro", "Não foi possível carregar os registros de ponto.");
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const renderItem = ({ item }) => {
     return (
-      <View style={styles.pointItem}>
-        <View style={styles.textContainer}>
-          <Text style={styles.itemText}>Origem: {item.origem === 'camera' ? 'Câmera' : 'Manual'}</Text>
-          <Text style={styles.itemText}>Justificativa: {item.justificativa}</Text>
-          <Text style={styles.timestampText}>
-            {item.timestamp_ponto ? new Date(item.timestamp_ponto).toLocaleDateString('pt-BR', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            }) : 'Data inválida'}
-          </Text>
-        </View>
-        <View style={styles.actionsContainer}>
-          {item.image_url && (
-            <TouchableOpacity onPress={() => handleViewImage(item.image_url)}>
-              <Ionicons name="image-outline" size={24} color="#007AFF" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-            <Ionicons name="trash-outline" size={24} color="red" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.header}>Meu Histórico de Pontos</Text>
-      {points.length > 0 ? (
-        <FlatList
-          data={points}
-          renderItem={renderItem}
-          keyExtractor={item => item.id}
-        />
-      ) : (
-        <Text style={styles.noDataText}>Nenhum registro de ponto encontrado.</Text>
-      )}
-
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            {selectedImage && (
-              <Image source={{ uri: selectedImage }} style={styles.fullImage} resizeMode="contain" />
+        <SafeAreaView style={styles.container}>
+            <Text style={styles.header}>Meu Histórico de Pontos</Text>
+            {points.length > 0 ? (
+                <FlatList
+                    data={points}
+                    renderItem={({ item }) => renderItem({ item, handleDeletePoint, handleViewImage })}
+                    keyExtractor={item => item.id}
+                />
+            ) : (
+                <Text style={styles.noDataText}>Nenhum registro de ponto encontrado.</Text>
             )}
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>Fechar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
-  );
+
+            <Modal
+                visible={modalVisible}
+                transparent={true}
+                onRequestClose={() => setModalVisible(false)}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalContent}>
+                        {selectedImage && (
+                            <Image source={{ uri: selectedImage }} style={styles.fullImage} resizeMode="contain" />
+                        )}
+                        <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
+                            <Text style={styles.closeButtonText}>Fechar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
+    );
 };
 
 const styles = StyleSheet.create({

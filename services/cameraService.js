@@ -1,4 +1,3 @@
-// services/cameraService.js
 import axios from 'axios';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -11,7 +10,7 @@ import { db, storage, auth } from '../config/firebase_config';
  * @param {string} base64Image - A imagem em formato base64.
  * @returns {object|null} A caixa delimitadora com originX, originY, width, height ou null se não for encontrada.
  */
-const findDocumentBoundingBox = async (base64Image) => {
+export const findDocumentBoundingBox = async (base64Image) => {
   console.log("DEBUG: Tentando encontrar a caixa delimitadora do documento...");
   try {
     const response = await axios.post(
@@ -33,225 +32,183 @@ const findDocumentBoundingBox = async (base64Image) => {
     const words = textAnnotations.slice(1);
     
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
-    // Calcula a bounding box que engloba todas as palavras detectadas
-    words.forEach(word => {
-        word.boundingPoly.vertices.forEach(vertex => {
-            minX = Math.min(minX, vertex.x);
-            minY = Math.min(minY, vertex.y);
-            maxX = Math.max(maxX, vertex.x);
-            maxY = Math.max(maxY, vertex.y);
-        });
-    });
+    let hasValidWord = false;
 
-    return {
-      originX: minX,
-      originY: minY,
-      width: maxX - minX,
-      height: maxY - minY,
+    words.forEach(word => {
+      if (word.boundingPoly && word.boundingPoly.vertices) {
+        hasValidWord = true;
+        word.boundingPoly.vertices.forEach(vertex => {
+          minX = Math.min(minX, vertex.x);
+          minY = Math.min(minY, vertex.y);
+          maxX = Math.max(maxX, vertex.x);
+          maxY = Math.max(maxY, vertex.y);
+        });
+      }
+    });
+    
+    if (!hasValidWord) {
+      return null;
+    }
+
+    const margin = 20;
+    const boundingBox = {
+      originX: Math.max(0, minX - margin),
+      originY: Math.max(0, minY - margin),
+      width: (maxX - minX) + (2 * margin),
+      height: (maxY - minY) + (2 * margin),
     };
+    
+    return boundingBox;
+
   } catch (error) {
-    console.error("Erro ao encontrar a caixa delimitadora do documento:", error);
+    console.error('ERRO: Falha ao detectar texto para a caixa delimitadora:', error);
     return null;
   }
 };
 
 /**
- * Envia a imagem para a Google Vision API para análise de texto.
- * @param {string} base64Image - A imagem cortada em formato base64.
- * @returns {string|null} O texto completo detectado na imagem ou null em caso de erro.
+ * Analisa a imagem para extrair todo o texto do documento.
+ * @param {string} base64Image - Imagem em base64.
+ * @returns {string} O texto completo extraído ou uma mensagem de erro.
  */
-const analyzeImage = async (base64Image) => {
-    try {
-        const response = await axios.post(
-            `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
-            {
-                requests: [{
-                    image: { content: base64Image },
-                    features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-                }],
-            }
-        );
-        const textAnnotations = response.data.responses[0]?.textAnnotations;
-        return textAnnotations && textAnnotations.length > 0 ? textAnnotations[0].description : null;
-    } catch (error) {
-        console.error("Erro na análise da imagem:", error);
-        return null;
+export const analyzeImage = async (base64Image) => {
+  console.log("DEBUG: Enviando imagem para a API Vision...");
+  try {
+    const response = await axios.post(
+      `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
+      {
+        requests: [{
+          image: { content: base64Image },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+        }],
+      }
+    );
+    const textFromImage = response.data.responses[0]?.fullTextAnnotation?.text;
+    if (textFromImage) {
+      console.log("DEBUG: Texto extraído com sucesso.");
+    } else {
+      console.log("DEBUG: Não foi possível extrair o texto completo.");
     }
+    return textFromImage || "Não foi possível detectar texto. Por favor, tente novamente.";
+  } catch (error) {
+    console.error('ERRO: Falha ao analisar a imagem:', error);
+    return "Não foi possível detectar texto. Por favor, tente novamente.";
+  }
 };
 
 /**
- * Extrai os dados de ponto do texto completo do comprovante.
- * @param {string} fullText - O texto completo extraído do comprovante.
- * @returns {object} Um objeto com os dados extraídos (nome, data, hora, etc.).
+ * Extrai dados específicos (nome, data, hora, etc.) de um texto.
+ * @param {string} text - O texto extraído da imagem.
+ * @returns {object} Um objeto com os dados extraídos.
  */
-const extractDataFromText = (fullText) => {
+export const extractDataFromText = (text) => {
+  console.log("DEBUG: Iniciando extração de dados...");
   const data = {};
-
-  const nameMatch = fullText.match(/NOME\s+(.+?)\nPIS:/s);
-  if (nameMatch && nameMatch[1]) data.name = nameMatch[1].trim();
-
-  const dateMatch = fullText.match(/(\d{2}\/\d{2}\/\d{4})/);
-  if (dateMatch && dateMatch[1]) data.date = dateMatch[1].trim();
-
-  const timeMatch = fullText.match(/(\d{2}:\d{2})/);
-  if (timeMatch && timeMatch[1]) data.time = timeMatch[1].trim();
-
+  const nameRegex = /NOME\s+(.*)/i;
+  const nameMatch = text.match(nameRegex);
+  if (nameMatch) {
+    data.name = nameMatch[1].trim();
+  }
+  const dateTimeRegex = /(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/;
+  const dateTimeMatch = text.match(dateTimeRegex);
+  if (dateTimeMatch) {
+    data.date = dateTimeMatch[1];
+    data.time = dateTimeMatch[2];
+  }
+  const storeRegex = /LOCAL:\s*(.*)/i;
+  const storeMatch = text.match(storeRegex);
+  if (storeMatch) {
+    data.store = storeMatch[1].trim();
+  }
+  const authCodeRegex = /PIS:\s*(\d+)/i;
+  const authCodeMatch = text.match(authCodeRegex);
+  if (authCodeMatch) {
+    data.authCode = authCodeMatch[1].trim();
+  }
+  console.log("DEBUG: Dados extraídos:", data);
   return data;
 };
 
 /**
- * Verifica se um comprovante com os mesmos dados já existe no Firestore.
- * @param {object} data - Os dados a serem verificados (data, hora, nome).
- * @returns {Promise<boolean>} Verdadeiro se for uma duplicata, falso caso contrário.
+ * Verifica se um registro de ponto já existe no Firestore.
+ * @param {object} data - Os dados do ponto a ser verificado.
+ * @returns {boolean} True se for um duplicado, false caso contrário.
  */
-const checkIfDuplicate = async (data) => {
+export const checkIfDuplicate = async (data) => {
+  console.log("DEBUG: Verificando duplicidade para:", data.name, data.date, data.time);
+  const pontosRef = collection(db, 'pontos');
   const q = query(
-    collection(db, 'pontos'),
+    pontosRef,
     where('name', '==', data.name),
     where('date', '==', data.date),
     where('time', '==', data.time)
   );
   const querySnapshot = await getDocs(q);
-  return !querySnapshot.empty;
+  const isDuplicate = !querySnapshot.empty;
+  console.log("DEBUG: Duplicidade verificada. É um duplicado?", isDuplicate);
+  return isDuplicate;
 };
 
 /**
- * Salva a imagem no Firebase Storage e registra o ponto no Firestore.
- * @param {string} photoUri - URI da foto local a ser enviada.
- * @param {object} pointData - Os dados do ponto a serem salvos no Firestore.
- * @returns {Promise<boolean>} Verdadeiro se o salvamento for bem-sucedido, falso caso contrário.
+ * Faz o upload de uma imagem para o Firebase Storage.
+ * @param {string} uri - O URI local da imagem.
+ * @returns {string|null} A URL de download da imagem ou null em caso de falha.
  */
-const savePointData = async (photoUri, pointData) => {
+export const uploadImage = async (uri) => {
+  console.log("DEBUG: Iniciando upload da imagem para o Firebase Storage...");
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const filename = `comprovantes/${Date.now()}.jpg`;
+    const storageRef = ref(storage, filename);
+    await uploadBytes(storageRef, blob);
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log("DEBUG: Imagem enviada para o Firebase Storage:", downloadURL);
+    return downloadURL;
+  } catch (error) {
+    console.error("ERRO: Falha ao enviar a imagem:", error);
+    return null;
+  }
+};
+
+/**
+ * Envia os dados do ponto para o Firestore.
+ * @param {object} data - Os dados do ponto a serem salvos.
+ * @param {string} photoURL - A URL da imagem no Storage.
+ * @param {string} justification - A justificativa para a diferença no nome, se houver.
+ * @returns {boolean} True se o salvamento for bem-sucedido, false caso contrário.
+ */
+export const sendToFirestore = async (data, photoURL, justification = null) => {
+  console.log("DEBUG: Enviando dados para o Firestore...");
   const user = auth.currentUser;
   if (!user) {
     console.error("ERRO: Usuário não autenticado.");
     return false;
   }
-
   try {
-    // 1. Upload da imagem para o Firebase Storage
-    const imageRef = ref(storage, `pontos_imagens/${user.uid}/${Date.now()}.jpg`);
-    const response = await fetch(photoUri);
-    const blob = await response.blob();
-    await uploadBytes(imageRef, blob);
-    const imageUrl = await getDownloadURL(imageRef);
-
-    // 2. Registro do ponto no Firestore com a URL da imagem
-    const finalPointData = {
-      ...pointData,
-      image_url: imageUrl,
+    const pontosCollection = collection(db, 'pontos');
+    const [day, month, year] = data.date.split('/').map(Number);
+    const [hours, minutes] = data.time.split(':').map(Number);
+    const pointDateTime = new Date(year, month - 1, day, hours, minutes);
+    let workdayDate = new Date(pointDateTime);
+    if (hours >= 0 && hours < 6) {
+      workdayDate.setDate(workdayDate.getDate() - 1);
+    }
+    await addDoc(pontosCollection, {
+      ...data,
+      timestamp_salvo: new Date().toISOString(),
+      timestamp_ponto: pointDateTime.toISOString(),
+      url_foto: photoURL,
+      origem: 'foto',
+      workday_date: workdayDate.toLocaleDateString('pt-BR'),
+      name_from_ocr: data.name,
+      justificativa_nome: justification,
       usuario_id: user.uid,
-    };
-    
-    await addDoc(collection(db, 'pontos'), finalPointData);
-    
-    // 3. Salvar o nome lido na coleção de leituras
-    await addDoc(collection(db, 'leituras_nome'), {
-      usuario_id: user.uid,
-      nome_lido: pointData.name,
-      timestamp: new Date(),
     });
-
-    console.log("DEBUG: Dados de ponto e nome salvos com sucesso!");
+    console.log("DEBUG: Dados enviados para o Firestore com sucesso!");
     return true;
   } catch (error) {
-    console.error("ERRO: Falha ao salvar os dados:", error);
+    console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
     return false;
   }
-};
-
-/**
- * Encontra o nome mais frequente entre as leituras do usuário.
- * @param {string} uid - O UID do usuário logado.
- * @returns {Promise<string|null>} O nome mais frequente ou null se não houver dados.
- */
-const findMostFrequentName = async (uid) => {
-    if (!uid) return null;
-
-    try {
-        const q = query(
-            collection(db, 'leituras_nome'),
-            where('usuario_id', '==', uid)
-        );
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-            return null;
-        }
-        
-        const namesCount = {};
-        let totalReadings = 0;
-
-        querySnapshot.forEach(doc => {
-            const name = doc.data().nome_lido.trim().toUpperCase();
-            if (name) {
-                namesCount[name] = (namesCount[name] || 0) + 1;
-                totalReadings++;
-            }
-        });
-
-        // Se tiver menos de 5 leituras, não retorna um nome de referência
-        if (totalReadings < 5) {
-            return null; 
-        }
-
-        let mostFrequentName = null;
-        let maxCount = 0;
-        
-        for (const name in namesCount) {
-            if (namesCount[name] > maxCount) {
-                maxCount = namesCount[name];
-                mostFrequentName = name;
-            }
-        }
-        
-        return mostFrequentName;
-        
-    } catch (error) {
-        console.error("Erro ao encontrar o nome mais frequente:", error);
-        return null;
-    }
-};
-
-/**
- * Função principal para processar a imagem do comprovante.
- * @param {string} imageUri - O URI da imagem tirada.
- * @returns {object} Os dados extraídos da imagem.
- */
-const processImage = async (imageUri) => {
-    // 1. Encontra a bounding box do texto
-    const tempImageResponse = await manipulateAsync(imageUri, [], { compress: 1, format: SaveFormat.JPEG, base64: true });
-    const boundingBox = await findDocumentBoundingBox(tempImageResponse.base64);
-
-    let croppedImageUri = imageUri;
-    if (boundingBox) {
-        const croppedImage = await manipulateAsync(
-            imageUri,
-            [{ crop: boundingBox }],
-            { compress: 1, format: SaveFormat.JPEG, base64: true }
-        );
-        croppedImageUri = croppedImage.uri;
-    }
-
-    // 2. Analisa o texto da imagem cortada
-    const croppedImageResponse = await manipulateAsync(croppedImageUri, [], { compress: 1, format: SaveFormat.JPEG, base64: true });
-    const detectedText = await analyzeImage(croppedImageResponse.base64);
-    const extractedData = extractDataFromText(detectedText);
-
-    return {
-        originalText: detectedText,
-        extractedData,
-    };
-};
-
-// Exportando as funções que a tela da câmera usará
-export {
-    findDocumentBoundingBox,
-    analyzeImage,
-    extractDataFromText,
-    checkIfDuplicate,
-    savePointData,
-    findMostFrequentName,
-    processImage
 };

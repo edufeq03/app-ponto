@@ -27,7 +27,6 @@ const AuthStack = createStackNavigator();
 const RegisterStack = createStackNavigator();
 const HistoryStack = createStackNavigator();
 
-// Navegador para as telas de login e cadastro
 function AuthStackScreen() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
@@ -37,7 +36,6 @@ function AuthStackScreen() {
   );
 }
 
-// Stack para a tela de registro de ponto (Manual ou Câmera)
 function RegisterStackScreen() {
   return (
     <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
@@ -48,7 +46,6 @@ function RegisterStackScreen() {
   );
 }
 
-// Stack para a tela de histórico
 function HistoryStackScreen() {
   return (
     <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
@@ -59,7 +56,6 @@ function HistoryStackScreen() {
   );
 }
 
-// O Navegador de abas principal
 function MainAppTabs() {
   return (
     <Tab.Navigator

@@ -23,7 +23,7 @@ export default function HistorySelectionScreen() {
                     onPress={() => navigation.navigate('Registros Individuais')}
                 >
                     <Ionicons name="list-outline" size={50} color="#4CAF50" />
-                    <Text style={styles.buttonText}>Detalhe Individual</Text>
+                    <Text style={styles.buttonText}>Registros</Text>
                 </TouchableOpacity>
             </View>
         </SafeAreaView>

@@ -1,63 +1,67 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
-const RegisterSelectionScreen = ({ navigation }) => {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Registrar Ponto</Text>
-      <Text style={styles.subtitle}>Escolha uma opção para registrar seu ponto.</Text>
-
-      <TouchableOpacity
-        style={styles.optionButton}
-        onPress={() => navigation.navigate('Entrada Manual')}
-      >
-        <Text style={styles.buttonText}>Entrada Manual</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.optionButton}
-        onPress={() => navigation.navigate('Ponto por Foto')}
-      >
-        <Text style={styles.buttonText}>Ponto por Foto</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
+export default function RegisterSelectionScreen({ navigation }) {
+    return (
+        <SafeAreaView style={styles.container}>
+            <Text style={styles.title}>Registrar Ponto</Text>
+            <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Entrada Manual')}
+                >
+                    <Ionicons name="create-outline" size={50} color="#007AFF" />
+                    <Text style={styles.buttonText}>Entrada Manual</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Ponto por Foto')}
+                >
+                    <Ionicons name="camera-outline" size={50} color="#4CAF50" />
+                    <Text style={styles.buttonText}>Ponto por Foto</Text>
+                </TouchableOpacity>
+            </View>
+        </SafeAreaView>
+    );
+}
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-    color: '#333',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-  optionButton: {
-    backgroundColor: '#007AFF',
-    paddingVertical: 15,
-    paddingHorizontal: 40,
-    borderRadius: 8,
-    width: '80%',
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+    container: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f5f5f5',
+        padding: 20,
+    },
+    title: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        marginBottom: 50,
+        color: '#333',
+    },
+    buttonContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        width: '100%',
+    },
+    button: {
+        backgroundColor: '#fff',
+        padding: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        width: '45%',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    buttonText: {
+        marginTop: 10,
+        fontSize: 16,
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
 });
-
-export default RegisterSelectionScreen;

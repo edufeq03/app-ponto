@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GOOGLE_CLOUD_VISION_API_KEY } from '../config/api_config';
@@ -211,4 +211,41 @@ export const sendToFirestore = async (data, photoURL, justification = null) => {
     console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
     return false;
   }
+};
+
+/**
+ * Limpa todos os registros de pontos do usuário logado.
+ * Esta função deve ser usada APENAS para desenvolvimento.
+ * @returns {Promise<boolean>} Verdadeiro se a limpeza for bem-sucedida, falso caso contrário.
+ */
+export const clearAllPoints = async () => {
+    console.log("LOG: Iniciando a limpeza de todos os pontos do usuário para desenvolvimento...");
+    const user = auth.currentUser;
+    if (!user) {
+        console.error("ERRO: Usuário não autenticado.");
+        return false;
+    }
+
+    try {
+        const pontosRef = collection(db, 'pontos');
+        const q = query(pontosRef, where('usuario_id', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            console.log("LOG: Nenhumn ponto encontrado para o usuário. Nenhuma limpeza necessária.");
+            return true;
+        }
+
+        const batch = writeBatch(db);
+        querySnapshot.docs.forEach(docSnapshot => {
+            batch.delete(doc(db, 'pontos', docSnapshot.id));
+        });
+
+        await batch.commit();
+        console.log(`LOG: ${querySnapshot.size} pontos deletados com sucesso.`);
+        return true;
+    } catch (error) {
+        console.error("ERRO: Falha ao limpar os pontos:", error);
+        return false;
+    }
 };

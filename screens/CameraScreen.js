@@ -76,8 +76,15 @@ export default function CameraScreen({ navigation }) {
   };
 
   const handleConfirmData = async () => {
-    if (!extractedData.date || !extractedData.time) {
-      Alert.alert("Erro", "Data ou hora não foram extraídas corretamente. Por favor, preencha manualmente ou tire outra foto.");
+    // Adicionado o nome para verificação
+    if (!extractedData.name || !extractedData.date || !extractedData.time) {
+      Alert.alert(
+        "Dados Incompletos",
+        "Não foi possível extrair o nome, a data ou a hora. Por favor, preencha manualmente ou tire outra foto.",
+        [
+          { text: "OK" }
+        ]
+      );
       return;
     }
     
@@ -110,6 +117,13 @@ export default function CameraScreen({ navigation }) {
     }
     
     await savePointAndImage(extractedData);
+  };
+
+  const handleTryAgain = () => {
+    setValidationModalVisible(false);
+    setExtractedData({});
+    setOriginalText('');
+    setPhotoUri(null);
   };
 
   const savePointAndImage = async (data, justification = null) => {
@@ -193,8 +207,8 @@ export default function CameraScreen({ navigation }) {
               <Text style={styles.formLabel}>Nome:</Text>
               <TextInput
                 style={[styles.input, { backgroundColor: '#e0e0e0' }]}
+                onChangeText={(text) => setExtractedData({ ...extractedData, name: text })}
                 value={extractedData.name}
-                editable={false}
               />
             </View>
             <View style={styles.formGroup}>
@@ -223,8 +237,8 @@ export default function CameraScreen({ navigation }) {
               disabled={isSaving}
             />
             <Button
-              title="Cancelar"
-              onPress={() => setValidationModalVisible(false)}
+              title="Tirar Outra Foto"
+              onPress={handleTryAgain}
             />
           </View>
         </SafeAreaView>

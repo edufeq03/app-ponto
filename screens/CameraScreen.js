@@ -1,11 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { StyleSheet, Button, View, Modal, Alert, Text, TextInput, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { auth } from '../config/firebase_config';
-import { findDocumentBoundingBox, analyzeImage, extractDataFromText, checkIfDuplicate, uploadImage, sendToFirestore } from '../services/cameraService.js';
 import { useFocusEffect } from '@react-navigation/native';
+import { auth } from '../config/firebase_config';
+import { findDocumentBoundingBox, analyzeImage, extractDataFromText, checkIfDuplicate, uploadImage, sendToFirestore, getUserProfileName, saveUserProfileName } from '../services/cameraService.js';
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const RECEIPT_ASPECT_RATIO = 5.5 / 4;
@@ -16,17 +16,24 @@ export default function CameraScreen({ navigation }) {
   const [extractedData, setExtractedData] = useState({});
   const [originalExtractedData, setOriginalExtractedData] = useState({});
   const [originalText, setOriginalText] = useState('');
-  const [photoUri, setPhotoUri] = useState(null); // Armazena a URI da foto
+  const [photoUri, setPhotoUri] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [processing, setProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [justificationModalVisible, setJustificationModalVisible] = useState(false);
   const [justification, setJustification] = useState('');
+  const [userProfileName, setUserProfileName] = useState(null);
+  const [nameInputModalVisible, setNameInputModalVisible] = useState(false);
+  const [inputtedName, setInputtedName] = useState('');
 
-  // Simula o nome do usuário logado.
-  // Em um app real, você obteria isso do seu estado de autenticação (Firebase, por exemplo)
-  const CURRENT_USER_NAME = "NOME DO USUÁRIO TESTE";
+  useEffect(() => {
+    const fetchProfileName = async () => {
+      const name = await getUserProfileName();
+      setUserProfileName(name);
+    };
+    fetchProfileName();
+  }, []);
 
   const handleTakePhoto = async () => {
     if (cameraRef.current) {
@@ -66,7 +73,12 @@ export default function CameraScreen({ navigation }) {
         setOriginalExtractedData(extracted);
         setOriginalText(detectedText);
         setProcessing(false);
-        setValidationModalVisible(true);
+        
+        if (!userProfileName) {
+            setNameInputModalVisible(true);
+        } else {
+            setValidationModalVisible(true);
+        }
       } catch (error) {
         console.error("ERRO: Falha ao tirar foto ou processar a imagem:", error);
         Alert.alert("Erro", "Não foi possível processar a imagem. Tente novamente.");
@@ -75,55 +87,68 @@ export default function CameraScreen({ navigation }) {
     }
   };
 
-  const handleConfirmData = async () => {
-    // Adicionado o nome para verificação
-    if (!extractedData.name || !extractedData.date || !extractedData.time) {
-      Alert.alert(
-        "Dados Incompletos",
-        "Não foi possível extrair o nome, a data ou a hora. Por favor, preencha manualmente ou tire outra foto.",
-        [
-          { text: "OK" }
-        ]
-      );
-      return;
-    }
-    
-    setIsSaving(true);
-    
-    const isDuplicate = await checkIfDuplicate(extractedData);
-    
-    if (isDuplicate) {
-      Alert.alert("Aviso", "Este comprovante já foi registrado!");
-      setIsSaving(false);
-      return;
-    }
-
-    if (extractedData.name && extractedData.name.trim().toUpperCase() !== CURRENT_USER_NAME.trim().toUpperCase()) {
-      Alert.alert(
-        "Aviso de Nome Diferente",
-        `O nome extraído do comprovante (${extractedData.name}) não corresponde ao seu nome de usuário (${CURRENT_USER_NAME}). Por favor, justifique a diferença.`,
-        [
-          { text: "Cancelar", style: "cancel", onPress: () => {
-            setIsSaving(false);
-          }},
-          { text: "Justificar", onPress: () => {
-            setIsSaving(false);
-            setValidationModalVisible(false);
-            setJustificationModalVisible(true);
-          }}
-        ]
-      );
-      return;
-    }
-    
-    await savePointAndImage(extractedData);
+  const handleSaveProfileName = async () => {
+      if (!inputtedName) {
+          Alert.alert("Aviso", "Por favor, digite seu nome.");
+          return;
+      }
+      const success = await saveUserProfileName(inputtedName);
+      if (success) {
+          setUserProfileName(inputtedName);
+          setNameInputModalVisible(false);
+          setValidationModalVisible(true);
+      } else {
+          Alert.alert("Erro", "Não foi possível salvar seu nome. Tente novamente.");
+      }
   };
 
-  const handleTryAgain = () => {
-    setValidationModalVisible(false);
-    setExtractedData({});
-    setOriginalText('');
-    setPhotoUri(null);
+  const validateAndSavePoint = async (data, justification = null) => {
+    setIsSaving(true);
+    try {
+      if (!data.name || !data.date || !data.time) {
+        Alert.alert(
+          "Dados Incompletos",
+          "Não foi possível extrair o nome, a data ou a hora. Por favor, preencha manualmente ou tire outra foto.",
+          [
+            { text: "OK" }
+          ]
+        );
+        return;
+      }
+
+      const isDuplicate = await checkIfDuplicate(data);
+      if (isDuplicate) {
+        Alert.alert("Aviso", "Este comprovante já foi registrado!");
+        setIsSaving(false);
+        setValidationModalVisible(false);
+        return;
+      }
+
+      if (userProfileName && data.name && data.name.trim().toUpperCase() !== userProfileName.trim().toUpperCase()) {
+        Alert.alert(
+          "Aviso de Nome Diferente",
+          `O nome extraído do comprovante (${data.name}) não corresponde ao seu nome de usuário (${userProfileName}). Por favor, justifique a diferença.`,
+          [
+            { text: "Cancelar", style: "cancel", onPress: () => {
+              setIsSaving(false);
+            }},
+            { text: "Justificar", onPress: () => {
+              setIsSaving(false);
+              setValidationModalVisible(false);
+              setJustificationModalVisible(true);
+            }}
+          ]
+        );
+        return;
+      }
+      
+      await savePointAndImage(data, justification);
+    } catch (error) {
+      console.error("ERRO: Falha na validação ou salvamento:", error);
+      Alert.alert("Erro", "Ocorreu um erro. Por favor, tente novamente.");
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const savePointAndImage = async (data, justification = null) => {
@@ -138,7 +163,6 @@ export default function CameraScreen({ navigation }) {
       
       if (success) {
         Alert.alert("Sucesso!", "Dados enviados com sucesso para o banco de dados.");
-        // Navegação para a tela de histórico
         navigation.navigate('Histórico', { screen: 'Registros Individuais' });
       } else {
         Alert.alert("Erro", "Falha ao enviar os dados. Verifique a conexão.");
@@ -151,6 +175,14 @@ export default function CameraScreen({ navigation }) {
       setJustificationModalVisible(false);
       setValidationModalVisible(false);
     }
+  };
+
+  const handleTryAgain = () => {
+    setValidationModalVisible(false);
+    setExtractedData({});
+    setOriginalText('');
+    setPhotoUri(null);
+    setJustification('');
   };
 
   const handleOpenCamera = async () => {
@@ -197,6 +229,24 @@ export default function CameraScreen({ navigation }) {
         </View>
       </Modal>
 
+      <Modal visible={nameInputModalVisible} animationType="slide" transparent={true}>
+          <View style={styles.justificationModalContainer}>
+              <View style={styles.justificationModalContent}>
+                  <Text style={styles.justificationHeader}>Primeiro Acesso</Text>
+                  <Text style={styles.justificationMessage}>Por favor, digite seu nome completo exatamente como aparece nos seus comprovantes de ponto.</Text>
+                  <TextInput
+                      style={styles.justificationInput}
+                      onChangeText={setInputtedName}
+                      value={inputtedName}
+                      placeholder="Nome completo (Ex: EDUARDO TARGINE CAPELLA)"
+                  />
+                  <View style={styles.justificationButtonContainer}>
+                      <Button title="Salvar e Continuar" onPress={handleSaveProfileName} />
+                  </View>
+              </View>
+          </View>
+      </Modal>
+
       <Modal visible={validationModalVisible} animationType="slide" style={{ flex: 1 }}>
         <SafeAreaView style={styles.modalContainer}>
           <ScrollView style={styles.scrollView}>
@@ -233,7 +283,7 @@ export default function CameraScreen({ navigation }) {
           <View style={styles.modalFooter}>
             <Button
               title={isSaving ? "Salvando..." : "Confirmar"}
-              onPress={handleConfirmData}
+              onPress={() => validateAndSavePoint(extractedData)}
               disabled={isSaving}
             />
             <Button
@@ -276,7 +326,6 @@ export default function CameraScreen({ navigation }) {
           </View>
         </Modal>
       )}
-
     </SafeAreaView>
   );
 }

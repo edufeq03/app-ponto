@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { collection, addDoc, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { GOOGLE_CLOUD_VISION_API_KEY } from '../config/api_config';
@@ -104,10 +104,11 @@ export const analyzeImage = async (base64Image) => {
 export const extractDataFromText = (text) => {
   console.log("DEBUG: Iniciando extração de dados...");
   const data = {};
-  const nameRegex = /NOME\s+(.*)/i;
+  // Expressão regular ajustada para capturar 'NOME' ou 'OME' e variações.
+  const nameRegex = /(NOME|OME|NOME:)\s*([A-Z\s]+?)\n/i;
   const nameMatch = text.match(nameRegex);
-  if (nameMatch) {
-    data.name = nameMatch[1].trim();
+  if (nameMatch && nameMatch[2]) {
+    data.name = nameMatch[2].trim();
   }
   const dateTimeRegex = /(\d{2}\/\d{2}\/\d{4})\s*(\d{2}:\d{2})/;
   const dateTimeMatch = text.match(dateTimeRegex);
@@ -210,6 +211,46 @@ export const sendToFirestore = async (data, photoURL, justification = null) => {
   } catch (error) {
     console.error("ERRO: Falha ao enviar dados para o Firestore:", error);
     return false;
+  }
+};
+
+/**
+ * Busca o nome de perfil do usuário no Firestore.
+ * @returns {Promise<string|null>} O nome de perfil do usuário ou null se não existir.
+ */
+export const getUserProfileName = async () => {
+  const user = auth.currentUser;
+  if (!user) {
+      console.error("ERRO: Usuário não autenticado.");
+      return null;
+  }
+  const userDocRef = doc(db, 'userProfiles', user.uid);
+  const userDoc = await getDoc(userDocRef);
+  if (userDoc.exists()) {
+      return userDoc.data().name;
+  }
+  return null;
+};
+
+/**
+ * Salva o nome de perfil do usuário no Firestore.
+ * @param {string} name - O nome do usuário.
+ * @returns {Promise<boolean>} Verdadeiro se o nome for salvo com sucesso, falso caso contrário.
+ */
+export const saveUserProfileName = async (name) => {
+  const user = auth.currentUser;
+  if (!user) {
+      console.error("ERRO: Usuário não autenticado.");
+      return false;
+  }
+  try {
+      const userDocRef = doc(db, 'userProfiles', user.uid);
+      await setDoc(userDocRef, { name });
+      console.log("Nome de perfil do usuário salvo com sucesso.");
+      return true;
+  } catch (error) {
+      console.error("ERRO: Falha ao salvar o nome de perfil do usuário:", error);
+      return false;
   }
 };
 

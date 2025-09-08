@@ -1,36 +1,40 @@
 // src/services/timeService.js
 
 /**
- * Calcula o total de horas trabalhadas com base em uma lista de pontos.
- * Esta função pode ser expandida para lidar com regras de negócio mais complexas,
- * como intervalos de almoço e horas extras.
- * * @param {Array<Object>} points - Uma lista de objetos de ponto em ordem cronológica.
+ * Calcula o total de horas trabalhadas de acordo com as regras de negócio.
+ * Considera apenas dias com 4 marcações.
+ * Desconta o tempo de almoço que exceder 65 minutos.
+ * @param {Array<Object>} points - Uma lista de objetos de ponto em ordem cronológica.
  * @returns {string} O total de horas trabalhadas formatado com duas casas decimais.
  */
 export const calculateTotalHours = (points) => {
-  let totalTime = 0;
+    // 1. Apenas dias com 4 marcações são considerados
+    if (points.length !== 4) {
+        return '0.00';
+    }
 
-  if (points.length < 2) {
+    const [ponto1, ponto2, ponto3, ponto4] = points.map(p => new Date(p.timestamp_ponto));
+
+    // 2. Calcula o tempo de trabalho
+    const workHoursMorning = ponto2.getTime() - ponto1.getTime(); // Saída 1 - Entrada 1
+    const workHoursAfternoon = ponto4.getTime() - ponto3.getTime(); // Saída 2 - Entrada 2
+    
+    let totalTime = workHoursMorning + workHoursAfternoon;
+
+    // 3. Verifica o intervalo de almoço
+    const lunchBreak = ponto3.getTime() - ponto2.getTime(); // Entrada 2 - Saída 1
+    const minBreakInMs = 65 * 60 * 1000; // 65 minutos em milissegundos
+
+    if (lunchBreak > minBreakInMs) {
+        const excessBreak = lunchBreak - minBreakInMs;
+        totalTime -= excessBreak;
+    }
+
+    // 4. Converte de milissegundos para horas e formata
+    if (totalTime > 0) {
+        const totalHours = totalTime / (1000 * 60 * 60);
+        return totalHours.toFixed(2);
+    }
+    
     return '0.00';
-  }
-
-  // Pega a primeira e a última marcação do dia
-  const firstPoint = points[0];
-  const lastPoint = points[points.length - 1];
-
-  totalTime = new Date(lastPoint.timestamp_ponto).getTime() - new Date(firstPoint.timestamp_ponto).getTime();
-  
-  // Se você tiver um cenário de ponto de almoço (4 marcações), pode subtrair o tempo do intervalo
-  if (points.length >= 4) {
-    const startBreak = new Date(points[1].timestamp_ponto).getTime();
-    const endBreak = new Date(points[2].timestamp_ponto).getTime();
-    totalTime -= (endBreak - startBreak);
-  }
-
-  // Converte de milissegundos para horas
-  if (totalTime > 0) {
-    return (totalTime / (1000 * 60 * 60)).toFixed(2);
-  }
-  
-  return '0.00';
 };

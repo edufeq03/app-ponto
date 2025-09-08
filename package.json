@@ -21,6 +21,7 @@
     "axios": "^1.11.0",
     "expo": "~53.0.22",
     "expo-camera": "~16.1.11",
+    "expo-file-system": "~18.1.11",
     "expo-image-manipulator": "~13.1.7",
     "expo-sharing": "~13.1.5",
     "expo-status-bar": "~2.2.3",
@@ -30,9 +31,9 @@
     "react-native": "0.79.6",
     "react-native-elements": "^3.4.3",
     "react-native-gesture-handler": "~2.24.0",
+    "react-native-modal-datetime-picker": "^18.0.0",
     "react-native-safe-area-context": "5.4.0",
-    "react-native-screens": "~4.11.1",
-    "expo-file-system": "~18.1.11"
+    "react-native-screens": "~4.11.1"
   },
   "devDependencies": {
     "@babel/core": "^7.28.4",

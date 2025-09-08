@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions, Alert, TouchableOpacity } from 'react-native';
-import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions, Alert, TouchableOpacity, Modal } from 'react-native';
+import { collection, query, orderBy, onSnapshot, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase_config';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
 // Importa o novo serviço de cálculo de horas
 import { calculateTotalHours } from '../services/timeService';
@@ -14,6 +15,12 @@ const { width } = Dimensions.get('window');
 const SummaryScreen = () => {
     const [summary, setSummary] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [isDownloadModalVisible, setDownloadModalVisible] = useState(false);
+    const [isDatePickerVisible, setDatePickerVisible] = useState(false);
+    const [datePickerType, setDatePickerType] = useState(null); // 'start' ou 'end'
+    const [startDate, setStartDate] = useState(new Date());
+    const [endDate, setEndDate] = useState(new Date());
+    const [isDownloading, setIsDownloading] = useState(false);
 
     const formatTime = (isoString) => {
         if (!isoString) return '';
@@ -51,33 +58,103 @@ const SummaryScreen = () => {
         );
     };
 
-    const handleDownload = async () => {
-        if (summary.length === 0) {
-            Alert.alert("Aviso", "Não há dados para download neste mês.");
+    const handleDownload = () => {
+        setDownloadModalVisible(true);
+    };
+
+    const handleConfirmDate = (date) => {
+        if (datePickerType === 'start') {
+            setStartDate(date);
+        } else {
+            setEndDate(date);
+        }
+        setDatePickerVisible(false);
+    };
+
+    const handleExportData = async () => {
+        setIsDownloading(true);
+        setDownloadModalVisible(false);
+
+        const user = auth.currentUser;
+        if (!user) {
+            Alert.alert("Erro", "Usuário não autenticado.");
+            setIsDownloading(false);
             return;
         }
 
-        // 1. Formatar os dados para CSV
-        const header = "Data,Entrada 1,Saída 1,Entrada 2,Saída 2,Horas Totais\n";
-        const csvContent = summary.map(item => {
-            const date = item.date;
-            const entrada1 = item.ponto1 ? formatTime(item.ponto1.timestamp_ponto) : '';
-            const saida1 = item.ponto2 ? formatTime(item.ponto2.timestamp_ponto) : '';
-            const entrada2 = item.ponto3 ? formatTime(item.ponto3.timestamp_ponto) : '';
-            const saida2 = item.ponto4 ? formatTime(item.ponto4.timestamp_ponto) : '';
-            
-            // Chama a nova função do serviço para calcular as horas
-            const pontosArray = [item.ponto1, item.ponto2, item.ponto3, item.ponto4].filter(Boolean);
-            const totalHours = calculateTotalHours(pontosArray);
-            
-            return `${date},${entrada1},${saida1},${entrada2},${saida2},${totalHours}`;
-        }).join('\n');
+        if (startDate > endDate) {
+            Alert.alert("Erro", "A data de início não pode ser posterior à data de fim.");
+            setIsDownloading(false);
+            return;
+        }
 
-        const fullCsvContent = header + csvContent;
-        const filename = `relatorio-ponto-${new Date().getMonth() + 1}-${new Date().getFullYear()}.csv`;
-        const fileUri = FileSystem.cacheDirectory + filename;
+        const startOfDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0);
+        const endOfDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59);
+
+        const q = query(
+            collection(db, 'pontos'),
+            where('usuario_id', '==', user.uid),
+            where('timestamp_ponto', '>=', startOfDay.toISOString()),
+            where('timestamp_ponto', '<=', endOfDay.toISOString()),
+            orderBy('timestamp_ponto', 'desc')
+        );
 
         try {
+            const querySnapshot = await getDocs(q);
+            const pointsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            if (pointsData.length === 0) {
+                Alert.alert("Aviso", "Nenhum registro encontrado para o período selecionado.");
+                setIsDownloading(false);
+                return;
+            }
+
+            const groupedByDay = pointsData.reduce((acc, point) => {
+                const date = new Date(point.timestamp_ponto).toLocaleDateString('pt-BR');
+                if (!acc[date]) {
+                    acc[date] = [];
+                }
+                acc[date].push(point);
+                return acc;
+            }, {});
+
+            const dailySummary = Object.entries(groupedByDay).map(([date, points]) => {
+                const sortedPoints = points.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
+                return {
+                    date,
+                    ponto1: sortedPoints[0] || null,
+                    ponto2: sortedPoints[1] || null,
+                    ponto3: sortedPoints[2] || null,
+                    ponto4: sortedPoints[3] || null,
+                };
+            });
+
+            // Gerar CSV com a nova lógica de cálculo
+            const header = "Data,Entrada 1,Saída 1,Entrada 2,Saída 2,Horas Totais\n";
+            let totalHoursSum = 0;
+
+            const csvContent = dailySummary.map(item => {
+                const entrada1 = item.ponto1 ? formatTime(item.ponto1.timestamp_ponto) : '';
+                const saida1 = item.ponto2 ? formatTime(item.ponto2.timestamp_ponto) : '';
+                const entrada2 = item.ponto3 ? formatTime(item.ponto3.timestamp_ponto) : '';
+                const saida2 = item.ponto4 ? formatTime(item.ponto4.timestamp_ponto) : '';
+
+                const pontosArray = [item.ponto1, item.ponto2, item.ponto3, item.ponto4].filter(Boolean);
+                const totalHours = calculateTotalHours(pontosArray);
+                
+                // Soma as horas para o total geral
+                totalHoursSum += parseFloat(totalHours);
+                
+                return `${item.date},${entrada1},${saida1},${entrada2},${saida2},${totalHours}`;
+            }).join('\n');
+            
+            // Adiciona a linha de total ao final
+            const totalRow = `\n\n,Total de Horas,${totalHoursSum.toFixed(2)}`;
+            const fullCsvContent = header + csvContent + totalRow;
+
+            const filename = `relatorio-ponto-${startDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}_a_${endDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
+            const fileUri = FileSystem.cacheDirectory + filename;
+
             await FileSystem.writeAsStringAsync(fileUri, fullCsvContent);
             if (!(await Sharing.isAvailableAsync())) {
                 Alert.alert("Erro", "A funcionalidade de compartilhamento não está disponível neste dispositivo.");
@@ -85,11 +162,14 @@ const SummaryScreen = () => {
             }
             await Sharing.shareAsync(fileUri);
         } catch (error) {
-            console.error("Erro ao criar ou compartilhar o arquivo:", error);
+            console.error("Erro ao carregar ou gerar o arquivo:", error);
             Alert.alert("Erro", "Não foi possível gerar o arquivo para download.");
+        } finally {
+            setIsDownloading(false);
         }
     };
 
+    // Efeito para a lista principal (em tempo real)
     useEffect(() => {
         const user = auth.currentUser;
         if (!user) {
@@ -158,7 +238,7 @@ const SummaryScreen = () => {
                 </TouchableOpacity>
             </View>
             <Text style={styles.legend}>Células cinzas: Ponto manual. * = Editado. J = Com justificativa.</Text>
-            
+
             <View style={styles.table}>
                 <View style={styles.tableRowHeader}>
                     <Text style={[styles.tableHeader, styles.dateCol]}>Data</Text>
@@ -181,6 +261,55 @@ const SummaryScreen = () => {
                     )}
                 />
             </View>
+            {/* Modal para seleção de período */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={isDownloadModalVisible}
+                onRequestClose={() => setDownloadModalVisible(false)}
+            >
+                <View style={styles.centeredView}>
+                    <View style={styles.modalView}>
+                        <Text style={styles.modalTitle}>Selecione o Período</Text>
+
+                        <View style={styles.datePickerContainer}>
+                            <Text>Data de Início:</Text>
+                            <TouchableOpacity onPress={() => { setDatePickerType('start'); setDatePickerVisible(true); }}>
+                                <Text style={styles.dateText}>{startDate.toLocaleDateString('pt-BR')}</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.datePickerContainer}>
+                            <Text>Data de Fim:</Text>
+                            <TouchableOpacity onPress={() => { setDatePickerType('end'); setDatePickerVisible(true); }}>
+                                <Text style={styles.dateText}>{endDate.toLocaleDateString('pt-BR')}</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity style={styles.buttonCancel} onPress={() => setDownloadModalVisible(false)}>
+                                <Text style={styles.textStyle}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.buttonDownload} onPress={handleExportData}>
+                                {isDownloading ? (
+                                    <ActivityIndicator color="#fff" />
+                                ) : (
+                                    <Text style={styles.textStyle}>Baixar</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            <DateTimePickerModal
+                isVisible={isDatePickerVisible}
+                mode="date"
+                onConfirm={handleConfirmDate}
+                onCancel={() => setDatePickerVisible(false)}
+                date={datePickerType === 'start' ? startDate : endDate}
+                locale="pt-BR"
+            />
         </SafeAreaView>
     );
 };
@@ -270,6 +399,71 @@ const styles = StyleSheet.create({
     justificationCellText: {
         fontWeight: 'bold',
         color: 'purple',
+    },
+    centeredView: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        marginTop: 22,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    modalView: {
+        margin: 20,
+        backgroundColor: "white",
+        borderRadius: 20,
+        padding: 35,
+        alignItems: "center",
+        shadowColor: "#000",
+        shadowOffset: {
+            width: 0,
+            height: 2
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5
+    },
+    modalTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginBottom: 15,
+    },
+    datePickerContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginBottom: 10,
+    },
+    dateText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#007AFF',
+    },
+    modalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginTop: 20,
+    },
+    buttonCancel: {
+        backgroundColor: "#E0E0E0",
+        borderRadius: 10,
+        padding: 10,
+        elevation: 2,
+        width: '45%',
+    },
+    buttonDownload: {
+        backgroundColor: "#007AFF",
+        borderRadius: 10,
+        padding: 10,
+        elevation: 2,
+        width: '45%',
+        alignItems: 'center',
+    },
+    textStyle: {
+        color: "black",
+        fontWeight: "bold",
+        textAlign: "center"
     },
 });
 

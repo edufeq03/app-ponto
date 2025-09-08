@@ -5,10 +5,13 @@ import { db, auth } from '../config/firebase_config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useFocusEffect } from '@react-navigation/native';
+import { getDocs } from 'firebase/firestore';
 
 const HistoryScreen = () => {
     const [points, setPoints] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [modalVisible, setModalVisible] = useState(false);
+    const [currentImage, setCurrentImage] = useState(null);
 
     useFocusEffect(
       React.useCallback(() => {
@@ -94,28 +97,35 @@ const HistoryScreen = () => {
       );
   };
 
-    const renderItem = ({ item }) => (
-      <View style={styles.itemContainer}>
-        <View style={styles.textContainer}>
-          <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {item.date}</Text>
-          <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {item.time}</Text>
-          <Text style={styles.itemText}><Text style={styles.label}>Nome:</Text> {item.name || 'Não detectado'}</Text>
-        </View>
-        <View style={styles.actionsContainer}>
-          {item.url_foto && (
-              <TouchableOpacity
-                  style={styles.imageButton}
-                  onPress={() => Linking.openURL(item.url_foto)}
-              >
-                  <Icon name="image" size={24} color="#007AFF" />
-              </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-              <Icon name="delete" size={24} color="red" />
-          </TouchableOpacity>
-        </View>
+  const handleViewImage = (imageUrl) => {
+    setCurrentImage(imageUrl);
+    setModalVisible(true);
+  };
+
+  const renderItem = ({ item }) => (
+    <View style={styles.itemContainer}>
+      <View style={styles.textContainer}>
+        <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {item.date}</Text>
+        <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {item.time}</Text>
+        {item.timestamp_salvo && (
+          <Text style={styles.itemText}><Text style={styles.label}>Registro:</Text> {new Date(item.timestamp_salvo).toLocaleString('pt-BR')}</Text>
+        )}
       </View>
-    );
+      <View style={styles.actionsContainer}>
+        {item.url_foto && (
+            <TouchableOpacity
+                style={styles.imageButton}
+                onPress={() => handleViewImage(item.url_foto)}
+            >
+                <Icon name="image" size={24} color="#007AFF" />
+            </TouchableOpacity>
+        )}
+        <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+            <Icon name="delete" size={24} color="red" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
     if (loading) {
       return (
@@ -145,6 +155,32 @@ const HistoryScreen = () => {
             />
           </View>
         )}
+        <Modal
+            animationType="slide"
+            transparent={true}
+            visible={modalVisible}
+            onRequestClose={() => {
+                setModalVisible(!modalVisible);
+            }}
+        >
+            <View style={styles.modalContainer}>
+                <View style={styles.modalContent}>
+                    <TouchableOpacity
+                        style={styles.closeButton}
+                        onPress={() => setModalVisible(false)}
+                    >
+                        <Icon name="close" size={30} color="#fff" />
+                    </TouchableOpacity>
+                    {currentImage && (
+                        <Image
+                            source={{ uri: currentImage }}
+                            style={styles.fullImage}
+                            resizeMode="contain"
+                        />
+                    )}
+                </View>
+            </View>
+        </Modal>
       </View>
     );
 }
@@ -254,6 +290,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginLeft: 10,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+  },
+  modalContent: {
+    width: '95%',
+    height: '80%',
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 1,
   },
 });
 

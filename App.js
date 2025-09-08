@@ -3,10 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, ActivityIndicator, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { View, ActivityIndicator, Button } from 'react-native';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Importe as telas
 import HomeScreen from './screens/HomeScreen';
@@ -27,13 +26,6 @@ const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();
 const RegisterStack = createStackNavigator();
 const HistoryStack = createStackNavigator();
-
-// Componente do botão de Sair estilizado
-const LogoutButton = () => (
-    <TouchableOpacity onPress={() => signOut(auth)} style={styles.logoutButton}>
-        <Icon name="logout" size={24} color="#007AFF" />
-    </TouchableOpacity>
-);
 
 // Navegador para as telas de login e cadastro
 function AuthStackScreen() {
@@ -89,11 +81,22 @@ function MainAppTabs() {
         tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: 'gray',
         headerShown: true,
-        headerRight: () => <LogoutButton />, // Botão de Sair em todas as abas
-        headerTitle: route.name === 'Início' ? 'Meu Ponto!' : route.name, // Título dinâmico
       })}
     >
-      <Tab.Screen name="Início" component={HomeScreen} />
+      <Tab.Screen
+        name="Início"
+        component={HomeScreen}
+        options={{
+          headerRight: () => (
+            <Button
+              onPress={() => signOut(auth)}
+              title="Sair"
+              color="#007AFF"
+            />
+          ),
+          headerTitle: 'Meu Ponto!',
+        }}
+      />
       <Tab.Screen name="Registrar" component={RegisterStackScreen} />
       <Tab.Screen name="Histórico" component={HistoryStackScreen} />
       <Tab.Screen name="Banco de Horas" component={ReportScreen} />
@@ -115,7 +118,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
@@ -127,14 +130,3 @@ export default function App() {
     </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    logoutButton: {
-        marginRight: 15,
-    },
-});

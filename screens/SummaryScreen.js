@@ -6,6 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
+// Importa o novo serviço de cálculo de horas
+import { calculateTotalHours } from '../services/timeService';
+
 const { width } = Dimensions.get('window');
 
 const SummaryScreen = () => {
@@ -17,30 +20,6 @@ const SummaryScreen = () => {
         const date = new Date(isoString);
         return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     };
-
-    const calculateTotalHours = (ponto1, ponto2, ponto3, ponto4) => {
-      let totalTime = 0;
-      let lastPoint = null;
-      let firstPoint = null;
-
-      if (ponto1) firstPoint = new Date(ponto1.timestamp_ponto);
-      if (ponto4) lastPoint = new Date(ponto4.timestamp_ponto);
-      
-      if (firstPoint && lastPoint) {
-        totalTime += lastPoint.getTime() - firstPoint.getTime();
-      }
-
-      // Se houverem apenas 2 pontos, calcula a diferença entre eles
-      if (ponto1 && ponto2 && !ponto3 && !ponto4) {
-        totalTime = new Date(ponto2.timestamp_ponto).getTime() - new Date(ponto1.timestamp_ponto).getTime();
-      }
-
-      if (totalTime > 0) {
-        return (totalTime / (1000 * 60 * 60)).toFixed(2);
-      }
-      return '0.00';
-    };
-
 
     const renderTimeCell = (pointData) => {
         if (!pointData) {
@@ -77,7 +56,7 @@ const SummaryScreen = () => {
             Alert.alert("Aviso", "Não há dados para download neste mês.");
             return;
         }
-    
+
         // 1. Formatar os dados para CSV
         const header = "Data,Entrada 1,Saída 1,Entrada 2,Saída 2,Horas Totais\n";
         const csvContent = summary.map(item => {
@@ -86,14 +65,18 @@ const SummaryScreen = () => {
             const saida1 = item.ponto2 ? formatTime(item.ponto2.timestamp_ponto) : '';
             const entrada2 = item.ponto3 ? formatTime(item.ponto3.timestamp_ponto) : '';
             const saida2 = item.ponto4 ? formatTime(item.ponto4.timestamp_ponto) : '';
-            const totalHours = calculateTotalHours(item.ponto1, item.ponto2, item.ponto3, item.ponto4);
+            
+            // Chama a nova função do serviço para calcular as horas
+            const pontosArray = [item.ponto1, item.ponto2, item.ponto3, item.ponto4].filter(Boolean);
+            const totalHours = calculateTotalHours(pontosArray);
+            
             return `${date},${entrada1},${saida1},${entrada2},${saida2},${totalHours}`;
         }).join('\n');
-    
+
         const fullCsvContent = header + csvContent;
         const filename = `relatorio-ponto-${new Date().getMonth() + 1}-${new Date().getFullYear()}.csv`;
         const fileUri = FileSystem.cacheDirectory + filename;
-    
+
         try {
             await FileSystem.writeAsStringAsync(fileUri, fullCsvContent);
             if (!(await Sharing.isAvailableAsync())) {
@@ -106,7 +89,7 @@ const SummaryScreen = () => {
             Alert.alert("Erro", "Não foi possível gerar o arquivo para download.");
         }
     };
-    
+
     useEffect(() => {
         const user = auth.currentUser;
         if (!user) {

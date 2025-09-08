@@ -143,9 +143,12 @@ const ManualEntryScreen = ({ navigation }) => {
                     />
                 )}
 
-                <View style={styles.buttonContainer}>
-                    <Button title="Registrar Ponto" onPress={sendToFirestore} />
-                </View>
+                <TouchableOpacity
+                    style={styles.registerButton}
+                    onPress={sendToFirestore}
+                >
+                    <Text style={styles.registerButtonText}>Registrar Ponto</Text>
+                </TouchableOpacity>
             </ScrollView>
         </SafeAreaView>
     );
@@ -202,8 +205,17 @@ const styles = StyleSheet.create({
     picker: {
         width: '100%',
     },
-    buttonContainer: {
+    registerButton: {
+        backgroundColor: '#007AFF',
+        padding: 15,
+        borderRadius: 10,
         marginTop: 20,
+        alignItems: 'center',
+    },
+    registerButtonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 16,
     },
 });
 

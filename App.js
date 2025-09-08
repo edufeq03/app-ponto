@@ -1,5 +1,3 @@
-// src/App.js
-
 import 'react-native-gesture-handler';
 import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
@@ -39,32 +37,33 @@ function AuthStackScreen() {
   );
 }
 
-// Navegador para a tela de registro de ponto (com sub-telas)
+// Stack para a tela de registro de ponto (Manual ou Câmera)
 function RegisterStackScreen() {
   return (
-    <RegisterStack.Navigator>
-      <RegisterStack.Screen name="Opções de Registro" component={RegisterSelectionScreen} />
-      <RegisterStack.Screen name="Entrada Manual" component={ManualEntryScreen} />
-      <RegisterStack.Screen name="Ponto por Foto" component={CameraScreen} />
+    <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
+      <RegisterStack.Screen name="RegisterHome" component={RegisterSelectionScreen} />
+      <RegisterStack.Screen name="ManualEntry" component={ManualEntryScreen} />
+      <RegisterStack.Screen name="Tirar Foto" component={CameraScreen} />
     </RegisterStack.Navigator>
   );
 }
 
-// Navegador para as telas de histórico (com sub-telas)
+// Stack para a tela de histórico
 function HistoryStackScreen() {
   return (
-    <HistoryStack.Navigator>
-      <HistoryStack.Screen name="Opções de Histórico" component={HistorySelectionScreen} />
+    <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
+      <HistoryStack.Screen name="HistoryHome" component={HistorySelectionScreen} />
       <HistoryStack.Screen name="Registros Individuais" component={HistoryScreen} />
       <HistoryStack.Screen name="Resumo Mensal" component={SummaryScreen} />
     </HistoryStack.Navigator>
   );
 }
 
-// Navegador principal
+// O Navegador de abas principal
 function MainAppTabs() {
   return (
     <Tab.Navigator
+      initialRouteName="Início"
       screenOptions={({ route }) => ({
         tabBarIcon: ({ color, size }) => {
           let iconName;
@@ -81,14 +80,21 @@ function MainAppTabs() {
         },
         tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: 'gray',
-        headerShown: false,
+        headerShown: true, // Alterado para true para exibir o cabeçalho
       })}
     >
       <Tab.Screen
         name="Início"
         component={HomeScreen}
         options={{
-          headerRight: () => <Button title="Logout" onPress={() => signOut(auth)} />,
+          headerRight: () => (
+            <Button
+              onPress={() => signOut(auth)}
+              title="Sair"
+              color="#007AFF"
+            />
+          ),
+          headerTitle: 'Meu Ponto!',
         }}
       />
       <Tab.Screen name="Registrar" component={RegisterStackScreen} />

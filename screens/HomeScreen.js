@@ -5,9 +5,9 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Bem-vindo!</Text>
+        <Text style={styles.title}>Meu Ponto!</Text>
         <Text style={styles.subtitle}>
-          Use o menu abaixo para registrar pontos e ver seu banco de horas.
+          Seu aplicativo para registro e controle de horas trabalhadas.
         </Text>
       </View>
     </SafeAreaView>

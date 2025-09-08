@@ -259,6 +259,7 @@ const SummaryScreen = () => {
                             {renderTimeCell(item.ponto4)}
                         </View>
                     )}
+                    style={styles.list} // Adicionando o estilo aqui
                 />
             </View>
             {/* Modal para seleção de período */}
@@ -348,10 +349,14 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
     },
     table: {
+        flex: 1, // Adicionando flex: 1 para a View da tabela
         borderWidth: 1,
         borderColor: '#ddd',
         borderRadius: 8,
         overflow: 'hidden',
+    },
+    list: { // Novo estilo para o FlatList
+        flex: 1,
     },
     tableRowHeader: {
         flexDirection: 'row',

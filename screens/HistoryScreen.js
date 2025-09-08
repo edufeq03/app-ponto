@@ -102,30 +102,51 @@ const HistoryScreen = () => {
     setModalVisible(true);
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.itemContainer}>
-      <View style={styles.textContainer}>
-        <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {item.date}</Text>
-        <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {item.time}</Text>
-        {item.timestamp_salvo && (
-          <Text style={styles.itemText}><Text style={styles.label}>Registro:</Text> {new Date(item.timestamp_salvo).toLocaleString('pt-BR')}</Text>
-        )}
-      </View>
-      <View style={styles.actionsContainer}>
-        {item.url_foto && (
+  const renderItem = ({ item }) => {
+    // Formata a data e hora do campo 'timestamp_ponto'
+    const pointDateTime = new Date(item.timestamp_ponto);
+    const formattedDate = pointDateTime.toLocaleDateString('pt-BR');
+    const formattedTime = pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    return (
+      <View style={styles.itemContainer}>
+        <View style={styles.textContainer}>
+          {/* Exibe o nome se a origem for 'foto' */}
+          {item.origem === 'foto' && (
+            <Text style={styles.itemText}>
+              <Text style={styles.label}>Nome:</Text> {item.name_from_ocr || 'Não detectado'}
+            </Text>
+          )}
+          <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {formattedDate}</Text>
+          <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {formattedTime}</Text>
+          {/* Exibe a justificativa baseada na origem do ponto */}
+          {item.origem === 'foto' && item.justificativa_ocr && (
+            <Text style={styles.itemText}>
+              <Text style={styles.label}>Justificativa:</Text> {item.justificativa_ocr}
+            </Text>
+          )}
+          {item.origem === 'manual' && item.justificativa && (
+            <Text style={styles.itemText}>
+              <Text style={styles.label}>Justificativa:</Text> {item.justificativa}
+            </Text>
+          )}
+        </View>
+        <View style={styles.actionsContainer}>
+          {item.origem === 'foto' && item.url_foto && (
             <TouchableOpacity
-                style={styles.imageButton}
-                onPress={() => handleViewImage(item.url_foto)}
+              style={styles.imageButton}
+              onPress={() => handleViewImage(item.url_foto)}
             >
-                <Icon name="image" size={24} color="#007AFF" />
+              <Icon name="image" size={24} color="#007AFF" />
             </TouchableOpacity>
-        )}
-        <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+          )}
+          <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
             <Icon name="delete" size={24} color="red" />
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
     if (loading) {
       return (

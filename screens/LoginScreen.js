@@ -38,7 +38,10 @@ const LoginScreen = ({ navigation }) => {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Text style={styles.title}>Bem-vindo!</Text>
+            <Text style={styles.title}>Meu Ponto!</Text>
+            <Text style={styles.subtitle}>
+            Seu aplicativo para registro e controle de horas trabalhadas.
+            </Text>
             <TextInput
                 style={styles.input}
                 placeholder="E-mail"
@@ -95,6 +98,12 @@ const styles = StyleSheet.create({
         color: '#007AFF',
         textAlign: 'center',
     },
+    subtitle: {
+    fontSize: 16,
+    marginBottom: 30,
+    color: '#666',
+    textAlign: 'center',
+  },
 });
 
 export default LoginScreen;

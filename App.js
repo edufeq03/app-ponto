@@ -41,9 +41,9 @@ function AuthStackScreen() {
 function RegisterStackScreen() {
   return (
     <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
-      <RegisterStack.Screen name="RegisterHome" component={RegisterSelectionScreen} />
-      <RegisterStack.Screen name="ManualEntry" component={ManualEntryScreen} />
-      <RegisterStack.Screen name="Tirar Foto" component={CameraScreen} />
+      <RegisterStack.Screen name="Opções de Registro" component={RegisterSelectionScreen} />
+      <RegisterStack.Screen name="Entrada Manual" component={ManualEntryScreen} />
+      <RegisterStack.Screen name="Ponto por Foto" component={CameraScreen} />
     </RegisterStack.Navigator>
   );
 }
@@ -52,7 +52,7 @@ function RegisterStackScreen() {
 function HistoryStackScreen() {
   return (
     <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
-      <HistoryStack.Screen name="HistoryHome" component={HistorySelectionScreen} />
+      <HistoryStack.Screen name="Opções de Histórico" component={HistorySelectionScreen} />
       <HistoryStack.Screen name="Registros Individuais" component={HistoryScreen} />
       <HistoryStack.Screen name="Resumo Mensal" component={SummaryScreen} />
     </HistoryStack.Navigator>
@@ -80,7 +80,7 @@ function MainAppTabs() {
         },
         tabBarActiveTintColor: '#007AFF',
         tabBarInactiveTintColor: 'gray',
-        headerShown: true, // Alterado para true para exibir o cabeçalho
+        headerShown: true,
       })}
     >
       <Tab.Screen

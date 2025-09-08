@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOp
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../config/firebase_config';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { Ionicons } from '@expo/vector-icons'; // Importação alterada para Ionicons
 import { useFocusEffect } from '@react-navigation/native';
 import { getDocs } from 'firebase/firestore';
 
@@ -103,7 +103,6 @@ const HistoryScreen = () => {
   };
 
   const renderItem = ({ item }) => {
-    // Formata a data e hora do campo 'timestamp_ponto'
     const pointDateTime = new Date(item.timestamp_ponto);
     const formattedDate = pointDateTime.toLocaleDateString('pt-BR');
     const formattedTime = pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -111,7 +110,6 @@ const HistoryScreen = () => {
     return (
       <View style={styles.itemContainer}>
         <View style={styles.textContainer}>
-          {/* Exibe o nome se a origem for 'foto' */}
           {item.origem === 'foto' && (
             <Text style={styles.itemText}>
               <Text style={styles.label}>Nome:</Text> {item.name_from_ocr || 'Não detectado'}
@@ -119,7 +117,6 @@ const HistoryScreen = () => {
           )}
           <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {formattedDate}</Text>
           <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {formattedTime}</Text>
-          {/* Exibe a justificativa baseada na origem do ponto */}
           {item.origem === 'foto' && item.justificativa_ocr && (
             <Text style={styles.itemText}>
               <Text style={styles.label}>Justificativa:</Text> {item.justificativa_ocr}
@@ -137,11 +134,11 @@ const HistoryScreen = () => {
               style={styles.imageButton}
               onPress={() => handleViewImage(item.url_foto)}
             >
-              <Icon name="image" size={24} color="#007AFF" />
+              <Ionicons name="image" size={24} color="#007AFF" />
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-            <Icon name="delete" size={24} color="red" />
+            <Ionicons name="trash-outline" size={24} color="red" />
           </TouchableOpacity>
         </View>
       </View>
@@ -168,13 +165,13 @@ const HistoryScreen = () => {
           style={styles.list}
         />
         {__DEV__ && (
-          <View style={styles.buttonContainer}>
-            <Button
-              title="Limpar todos os dados de ponto"
+          <TouchableOpacity
+              style={styles.clearAllButton}
               onPress={handleClearData}
-              color="red"
-            />
-          </View>
+          >
+              <Ionicons name="trash-bin-outline" size={24} color="#fff" />
+              <Text style={styles.clearAllButtonText}>Limpar Todos os Pontos</Text>
+          </TouchableOpacity>
         )}
         <Modal
             animationType="slide"
@@ -190,7 +187,7 @@ const HistoryScreen = () => {
                         style={styles.closeButton}
                         onPress={() => setModalVisible(false)}
                     >
-                        <Icon name="close" size={30} color="#fff" />
+                        <Ionicons name="close" size={30} color="#fff" />
                     </TouchableOpacity>
                     {currentImage && (
                         <Image
@@ -286,15 +283,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   imageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 8,
     borderRadius: 5,
-  },
-  imageButtonText: {
-    marginLeft: 5,
-    color: '#007AFF',
-    fontWeight: 'bold',
   },
   emptyListText: {
     textAlign: 'center',
@@ -331,6 +321,21 @@ const styles = StyleSheet.create({
     top: 20,
     right: 20,
     zIndex: 1,
+  },
+  clearAllButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'red',
+      padding: 15,
+      borderRadius: 10,
+      marginTop: 20,
+  },
+  clearAllButtonText: {
+      color: 'white',
+      fontWeight: 'bold',
+      marginLeft: 10,
+      fontSize: 16,
   },
 });
 

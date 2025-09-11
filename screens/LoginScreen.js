@@ -57,9 +57,11 @@ const LoginScreen = ({ navigation }) => {
                 value={password}
                 onChangeText={setPassword}
             />
-            <View style={styles.buttonContainer}>
-                <Button title="Entrar" onPress={handleLogin} />
-            </View>
+
+            <TouchableOpacity style={styles.button} onPress={handleLogin}>
+                <Text style={styles.buttonText}>Entrar</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
                 <Text style={styles.linkText}>Não tem uma conta? Cadastre-se</Text>
             </TouchableOpacity>
@@ -103,7 +105,19 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     color: '#666',
     textAlign: 'center',
-  },
+    },
+    button: {
+        backgroundColor: '#007AFF',
+        paddingVertical: 12,
+        borderRadius: 8,
+        alignItems: 'center',
+        marginTop: 10,
+    },
+    buttonText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
 });
 
 export default LoginScreen;

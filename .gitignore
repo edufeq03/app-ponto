@@ -29,12 +29,12 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+# Arquivo que armazena as chaves de API para uso local.
+# NÃO DEVE ser commitado para o Git.
+.env
 
 # typescript
 *.tsbuildinfo
 
 # Adicione esta seção para proteger arquivos com credenciais
 # Arquivos que contêm chaves de API, segredos e configurações sensíveis
-api_config.js
-firebase_config.js

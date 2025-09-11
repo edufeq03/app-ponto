@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { View, ActivityIndicator, Button } from 'react-native';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useFonts } from 'expo-font';
+import { useFonts } from 'expo-font'; // Importe o useFonts
 
 // Importe as telas
 import HomeScreen from './screens/HomeScreen';
@@ -109,6 +109,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Use o useFonts para carregar a fonte
   const [fontsLoaded] = useFonts({
     'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
   });

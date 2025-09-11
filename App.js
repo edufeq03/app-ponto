@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { View, ActivityIndicator, Button } from 'react-native';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useFonts } from 'expo-font'; // <-- LINHA ADICIONADA
+import { useFonts } from 'expo-font';
 
 // Importe as telas
 import HomeScreen from './screens/HomeScreen';
@@ -38,39 +38,40 @@ function AuthStackScreen() {
   );
 }
 
-// Navegador para o registro de ponto
+// Stack para a tela de registro de ponto (Manual ou Câmera)
 function RegisterStackScreen() {
   return (
-    <RegisterStack.Navigator>
-      <RegisterStack.Screen name="Registro de Ponto" component={RegisterSelectionScreen} />
+    <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
+      <RegisterStack.Screen name="Opções de Registro" component={RegisterSelectionScreen} />
       <RegisterStack.Screen name="Entrada Manual" component={ManualEntryScreen} />
       <RegisterStack.Screen name="Ponto por Foto" component={CameraScreen} />
     </RegisterStack.Navigator>
   );
 }
 
-// Navegador para o histórico de ponto
+// Stack para a tela de histórico
 function HistoryStackScreen() {
   return (
-    <HistoryStack.Navigator>
-      <HistoryStack.Screen name="Histórico de Ponto" component={HistorySelectionScreen} />
-      <HistoryStack.Screen name="Resumo Mensal" component={SummaryScreen} />
+    <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
+      <HistoryStack.Screen name="Opções de Histórico" component={HistorySelectionScreen} />
       <HistoryStack.Screen name="Registros Individuais" component={HistoryScreen} />
+      <HistoryStack.Screen name="Resumo Mensal" component={SummaryScreen} />
     </HistoryStack.Navigator>
   );
 }
 
-// Navegador principal com abas
-function MainTabNavigator() {
+// O Navegador de abas principal
+function MainAppTabs() {
   return (
     <Tab.Navigator
+      initialRouteName="Início"
       screenOptions={({ route }) => ({
         tabBarIcon: ({ color, size }) => {
           let iconName;
           if (route.name === 'Início') {
             iconName = 'home';
           } else if (route.name === 'Registrar') {
-            iconName = 'add-circle';
+            iconName = 'add-task';
           } else if (route.name === 'Histórico') {
             iconName = 'history';
           } else if (route.name === 'Banco de Horas') {
@@ -108,7 +109,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Carrega a fonte dos ícones antes de renderizar qualquer coisa
   const [fontsLoaded] = useFonts({
     'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
   });
@@ -121,7 +121,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Exibe o carregador enquanto o usuário ou as fontes são carregadas
   if (loading || !fontsLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -132,7 +131,7 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      {user ? <MainTabNavigator /> : <AuthStackScreen />}
+      {user ? <MainAppTabs /> : <AuthStackScreen />}
     </NavigationContainer>
   );
 }

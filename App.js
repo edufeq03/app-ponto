@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { View, ActivityIndicator, Button } from 'react-native';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useFonts } from 'expo-font'; // Importe o useFonts
+import { useFonts } from 'expo-font';
 
 // Importe as telas
 import HomeScreen from './screens/HomeScreen';

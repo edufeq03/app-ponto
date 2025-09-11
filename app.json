@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "ponto-app",
-    "slug": "ponto-app",
+    "name": "Meu Ponto",
+    "slug": "meu-ponto-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

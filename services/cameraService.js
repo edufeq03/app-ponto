@@ -12,6 +12,10 @@ import { db, storage, auth } from '../config/firebase_config';
  */
 export const findDocumentBoundingBox = async (base64Image) => {
   console.log("DEBUG: Tentando encontrar a caixa delimitadora do documento...");
+  // Adicionei este log para inspecionar a requisição
+  console.log("DEBUG: Verificando a chave de API:", GOOGLE_CLOUD_VISION_API_KEY ? 'Chave presente' : 'Chave ausente');
+  console.log("DEBUG: Tamanho da string Base64 da imagem:", base64Image ? base64Image.length : 'null');
+  
   try {
     const response = await axios.post(
       `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,
@@ -73,6 +77,10 @@ export const findDocumentBoundingBox = async (base64Image) => {
  */
 export const analyzeImage = async (base64Image) => {
   console.log("DEBUG: Enviando imagem para a API Vision...");
+  // Adicionei este log para inspecionar a requisição
+  console.log("DEBUG: Verificando a chave de API:", GOOGLE_CLOUD_VISION_API_KEY ? 'Chave presente' : 'Chave ausente');
+  console.log("DEBUG: Tamanho da string Base64 da imagem:", base64Image ? base64Image.length : 'null');
+
   try {
     const response = await axios.post(
       `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_CLOUD_VISION_API_KEY}`,

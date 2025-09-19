@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions, Alert, TouchableOpacity, Modal } from 'react-native';
-import { collection, query, orderBy, where, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase_config';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy'; // IMPORTAÇÃO CORRIGIDA
 import * as Sharing from 'expo-sharing';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 
@@ -22,6 +22,7 @@ const SummaryScreen = () => {
     const [endDate, setEndDate] = useState(new Date());
     const [isDownloading, setIsDownloading] = useState(false);
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [downloadFormat, setDownloadFormat] = useState('csv'); // Adicionamos de volta o estado do formato
 
     const isCurrentMonth = () => {
         const today = new Date();
@@ -166,38 +167,42 @@ const SummaryScreen = () => {
                 };
             });
 
-            // Gerar CSV com a nova lógica de cálculo
-            const header = "Data,Entrada 1,Saída 1,Entrada 2,Saída 2,Horas Totais\n";
-            let totalHoursSum = 0;
+            // Lógica de exportação baseada no formato selecionado
+            if (downloadFormat === 'csv') {
+                const header = "Data,Entrada 1,Saída 1,Entrada 2,Saída 2,Horas Totais\n";
+                let totalHoursSum = 0;
 
-            const csvContent = dailySummary.map(item => {
-                const entrada1 = item.ponto1 ? formatTime(item.ponto1.timestamp_ponto) : '';
-                const saida1 = item.ponto2 ? formatTime(item.ponto2.timestamp_ponto) : '';
-                const entrada2 = item.ponto3 ? formatTime(item.ponto3.timestamp_ponto) : '';
-                const saida2 = item.ponto4 ? formatTime(item.ponto4.timestamp_ponto) : '';
+                const csvContent = dailySummary.map(item => {
+                    const entrada1 = item.ponto1 ? formatTime(item.ponto1.timestamp_ponto) : '';
+                    const saida1 = item.ponto2 ? formatTime(item.ponto2.timestamp_ponto) : '';
+                    const entrada2 = item.ponto3 ? formatTime(item.ponto3.timestamp_ponto) : '';
+                    const saida2 = item.ponto4 ? formatTime(item.ponto4.timestamp_ponto) : '';
 
-                const pontosArray = [item.ponto1, item.ponto2, item.ponto3, item.ponto4].filter(Boolean);
-                const totalHours = calculateTotalHours(pontosArray);
+                    const pontosArray = [item.ponto1, item.ponto2, item.ponto3, item.ponto4].filter(Boolean);
+                    const totalHours = calculateTotalHours(pontosArray);
+                    
+                    totalHoursSum += parseFloat(totalHours);
+                    
+                    return `${item.date},${entrada1},${saida1},${entrada2},${saida2},${totalHours}`;
+                }).join('\n');
                 
-                // Soma as horas para o total geral
-                totalHoursSum += parseFloat(totalHours);
-                
-                return `${item.date},${entrada1},${saida1},${entrada2},${saida2},${totalHours}`;
-            }).join('\n');
-            
-            // Adiciona a linha de total ao final
-            const totalRow = `\n\n,Total de Horas,${totalHoursSum.toFixed(2)}`;
-            const fullCsvContent = header + csvContent + totalRow;
+                const totalRow = `\n\n,Total de Horas,${totalHoursSum.toFixed(2)}`;
+                const fullCsvContent = header + csvContent + totalRow;
 
-            const filename = `relatorio-ponto-${startDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}_a_${endDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
-            const fileUri = FileSystem.cacheDirectory + filename;
+                const filename = `relatorio-ponto-${startDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}_a_${endDate.toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`;
+                const fileUri = FileSystem.cacheDirectory + filename;
 
-            await FileSystem.writeAsStringAsync(fileUri, fullCsvContent);
-            if (!(await Sharing.isAvailableAsync())) {
-                Alert.alert("Erro", "A funcionalidade de compartilhamento não está disponível neste dispositivo.");
-                return;
+                await FileSystem.writeAsStringAsync(fileUri, fullCsvContent);
+                if (!(await Sharing.isAvailableAsync())) {
+                    Alert.alert("Erro", "A funcionalidade de compartilhamento não está disponível neste dispositivo.");
+                    return;
+                }
+                await Sharing.shareAsync(fileUri);
+            } else if (downloadFormat === 'pdf') {
+                // TODO: Adicionar a lógica de geração de PDF aqui
+                Alert.alert("Funcionalidade em desenvolvimento", "A geração de PDF será implementada em breve.");
             }
-            await Sharing.shareAsync(fileUri);
+
         } catch (error) {
             console.error("Erro ao carregar ou gerar o arquivo:", error);
             Alert.alert("Erro", "Não foi possível gerar o arquivo para download.");
@@ -230,13 +235,13 @@ const SummaryScreen = () => {
                 orderBy('timestamp_ponto', 'desc')
             );
             
+            // Substituição de onSnapshot por getDocs
             const querySnapshot = await getDocs(q);
             const pointsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
             const groupedByDay = pointsData.reduce((acc, point) => {
                 const date = new Date(point.timestamp_ponto);
                 
-                // Lógica de agrupamento para horários noturnos
                 const keyDate = new Date(date);
                 if (date.getHours() >= 0 && date.getHours() < 6) {
                     keyDate.setDate(keyDate.getDate() - 1);
@@ -332,7 +337,7 @@ const SummaryScreen = () => {
             >
                 <View style={styles.centeredView}>
                     <View style={styles.modalView}>
-                        <Text style={styles.modalTitle}>Selecione o Período</Text>
+                        <Text style={styles.modalTitle}>Selecione o Período e Formato</Text>
 
                         <View style={styles.datePickerContainer}>
                             <Text>Data de Início:</Text>
@@ -347,6 +352,25 @@ const SummaryScreen = () => {
                                 <Text style={styles.dateText}>{endDate.toLocaleDateString('pt-BR')}</Text>
                             </TouchableOpacity>
                         </View>
+                        
+                        <View style={styles.formatSelectorContainer}>
+                            <Text>Formato:</Text>
+                            <View style={styles.formatButtons}>
+                                <TouchableOpacity 
+                                    style={[styles.formatButton, downloadFormat === 'csv' && styles.formatButtonSelected]}
+                                    onPress={() => setDownloadFormat('csv')}
+                                >
+                                    <Text style={[styles.formatButtonText, downloadFormat === 'csv' && styles.formatButtonTextSelected]}>CSV</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={[styles.formatButton, downloadFormat === 'pdf' && styles.formatButtonSelected]}
+                                    onPress={() => setDownloadFormat('pdf')}
+                                >
+                                    <Text style={[styles.formatButtonText, downloadFormat === 'pdf' && styles.formatButtonTextSelected]}>PDF</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
 
                         <View style={styles.modalButtons}>
                             <TouchableOpacity style={styles.buttonCancel} onPress={() => setDownloadModalVisible(false)}>
@@ -504,6 +528,7 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 15,
+        textAlign: 'center',
     },
     datePickerContainer: {
         flexDirection: 'row',
@@ -516,6 +541,34 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
         color: '#007AFF',
+    },
+    formatSelectorContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginBottom: 15,
+    },
+    formatButtons: {
+        flexDirection: 'row',
+    },
+    formatButton: {
+        borderWidth: 1,
+        borderColor: '#007AFF',
+        borderRadius: 5,
+        paddingVertical: 5,
+        paddingHorizontal: 15,
+        marginLeft: 10,
+    },
+    formatButtonSelected: {
+        backgroundColor: '#007AFF',
+    },
+    formatButtonText: {
+        color: '#007AFF',
+        fontWeight: 'bold',
+    },
+    formatButtonTextSelected: {
+        color: '#fff',
     },
     modalButtons: {
         flexDirection: 'row',

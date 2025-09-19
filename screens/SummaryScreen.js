@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, SafeAreaView, Dimensions, Alert, TouchableOpacity, Modal } from 'react-native';
-import { collection, query, orderBy, onSnapshot, where, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase_config';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
@@ -21,6 +21,30 @@ const SummaryScreen = () => {
     const [startDate, setStartDate] = useState(new Date());
     const [endDate, setEndDate] = useState(new Date());
     const [isDownloading, setIsDownloading] = useState(false);
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+
+    const isCurrentMonth = () => {
+        const today = new Date();
+        return (
+            currentMonth.getMonth() === today.getMonth() &&
+            currentMonth.getFullYear() === today.getFullYear()
+        );
+    };
+
+    const goToPreviousMonth = () => {
+        setCurrentMonth(prevMonth => {
+            const newDate = new Date(prevMonth.getFullYear(), prevMonth.getMonth() - 1, 1);
+            return newDate;
+        });
+    };
+
+    const goToNextMonth = () => {
+        if (isCurrentMonth()) return;
+        setCurrentMonth(prevMonth => {
+            const newDate = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 1);
+            return newDate;
+        });
+    };
 
     const formatTime = (isoString) => {
         if (!isoString) return '';
@@ -33,27 +57,32 @@ const SummaryScreen = () => {
             return <Text style={[styles.tableCell, styles.col]}>-</Text>;
         }
 
+        const date = new Date(pointData.timestamp_ponto);
+        const hours = date.getHours();
+
         const cellStyles = [styles.tableCell, styles.col];
         const textStyles = [];
 
+        // Verifica se a célula é manual
         if (pointData.origem === 'manual') {
             cellStyles.push(styles.manualCell);
         }
-        if (pointData.isOvernight) {
-            textStyles.push(styles.overnightCellText);
+        
+        // Verifica se o ponto foi feito de 00:00h até 06:00h
+        const isEarlyMorning = hours >= 0 && hours < 6;
+        if (isEarlyMorning) {
+            textStyles.push(styles.earlyMorningText);
         }
+
+        // Verifica se a célula foi editada
         if (pointData.isEdited) {
             textStyles.push(styles.editedCellText);
-        }
-        if (pointData.justificativa) {
-            textStyles.push(styles.justificationCellText);
         }
 
         return (
             <Text style={[...cellStyles, ...textStyles]}>
                 {formatTime(pointData.timestamp_ponto)}
                 {pointData.isEdited && ' *'}
-                {pointData.justificativa && ' J'}
             </Text>
         );
     };
@@ -110,11 +139,19 @@ const SummaryScreen = () => {
             }
 
             const groupedByDay = pointsData.reduce((acc, point) => {
-                const date = new Date(point.timestamp_ponto).toLocaleDateString('pt-BR');
-                if (!acc[date]) {
-                    acc[date] = [];
+                const date = new Date(point.timestamp_ponto);
+                
+                // Lógica de agrupamento para horários noturnos
+                const keyDate = new Date(date);
+                if (date.getHours() >= 0 && date.getHours() < 6) {
+                    keyDate.setDate(keyDate.getDate() - 1);
                 }
-                acc[date].push(point);
+                const key = keyDate.toLocaleDateString('pt-BR');
+
+                if (!acc[key]) {
+                    acc[key] = [];
+                }
+                acc[key].push(point);
                 return acc;
             }, {});
 
@@ -168,32 +205,48 @@ const SummaryScreen = () => {
             setIsDownloading(false);
         }
     };
-
+    
     // Efeito para a lista principal (em tempo real)
     useEffect(() => {
-        const user = auth.currentUser;
-        if (!user) {
-            setLoading(false);
-            setSummary([]);
-            Alert.alert("Aviso", "Usuário não autenticado. Nenhum resumo para exibir.");
-            return;
-        }
+        const fetchPoints = async () => {
+            setLoading(true);
+            const user = auth.currentUser;
+            if (!user) {
+                setLoading(false);
+                setSummary([]);
+                Alert.alert("Aviso", "Usuário não autenticado. Nenhum resumo para exibir.");
+                return;
+            }
 
-        const q = query(
-            collection(db, 'pontos'),
-            where('usuario_id', '==', user.uid),
-            orderBy('timestamp_ponto', 'desc')
-        );
+            const pontosCollection = collection(db, 'pontos');
+            const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+            const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59);
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const pointsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const q = query(
+                pontosCollection,
+                where('usuario_id', '==', user.uid),
+                where('timestamp_ponto', '>=', startOfMonth.toISOString()),
+                where('timestamp_ponto', '<=', endOfMonth.toISOString()),
+                orderBy('timestamp_ponto', 'desc')
+            );
+            
+            const querySnapshot = await getDocs(q);
+            const pointsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
             const groupedByDay = pointsData.reduce((acc, point) => {
-                const date = new Date(point.timestamp_ponto).toLocaleDateString('pt-BR');
-                if (!acc[date]) {
-                    acc[date] = [];
+                const date = new Date(point.timestamp_ponto);
+                
+                // Lógica de agrupamento para horários noturnos
+                const keyDate = new Date(date);
+                if (date.getHours() >= 0 && date.getHours() < 6) {
+                    keyDate.setDate(keyDate.getDate() - 1);
                 }
-                acc[date].push(point);
+                const key = keyDate.toLocaleDateString('pt-BR');
+
+                if (!acc[key]) {
+                    acc[key] = [];
+                }
+                acc[key].push(point);
                 return acc;
             }, {});
 
@@ -212,14 +265,10 @@ const SummaryScreen = () => {
 
             setSummary(dailySummary);
             setLoading(false);
-        }, (error) => {
-            console.error("Erro ao carregar os dados:", error);
-            setLoading(false);
-            Alert.alert("Erro", "Não foi possível carregar o resumo mensal.");
-        });
+        };
 
-        return () => unsubscribe();
-    }, []);
+        fetchPoints();
+    }, [currentMonth]);
 
     if (loading) {
         return (
@@ -232,12 +281,24 @@ const SummaryScreen = () => {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.headerContainer}>
-                <Text style={styles.header}>Resumo Mensal</Text>
+                <TouchableOpacity onPress={goToPreviousMonth} style={styles.navButton}>
+                    <Ionicons name="chevron-back" size={24} color="#007AFF" />
+                </TouchableOpacity>
+                <Text style={styles.headerText}>
+                    {currentMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^\w/, (c) => c.toUpperCase())}
+                </Text>
+                <TouchableOpacity onPress={goToNextMonth} style={styles.navButton} disabled={isCurrentMonth()}>
+                    <Ionicons name="chevron-forward" size={24} color={isCurrentMonth() ? '#ccc' : '#007AFF'} />
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.downloadContainer}>
                 <TouchableOpacity onPress={handleDownload} style={styles.downloadButton}>
                     <Ionicons name="download-outline" size={24} color="#007AFF" />
                 </TouchableOpacity>
             </View>
-            <Text style={styles.legend}>Células cinzas: Ponto manual. * = Editado. J = Com justificativa.</Text>
+
+            <Text style={styles.legend}>Células cinzas: Ponto manual. * = Editado. Horas em azul = Registro entre 00:00h e 06:00h.</Text>
 
             <View style={styles.table}>
                 <View style={styles.tableRowHeader}>
@@ -259,7 +320,7 @@ const SummaryScreen = () => {
                             {renderTimeCell(item.ponto4)}
                         </View>
                     )}
-                    style={styles.list} // Adicionando o estilo aqui
+                    style={styles.list}
                 />
             </View>
             {/* Modal para seleção de período */}
@@ -330,13 +391,29 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginVertical: 20,
+        marginTop: 20,
+        backgroundColor: '#fff',
+        paddingVertical: 10,
+        paddingHorizontal: 15,
+        borderRadius: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 3,
     },
-    header: {
-        fontSize: 24,
+    headerText: {
+        fontSize: 18,
         fontWeight: 'bold',
-        textAlign: 'center',
+        textTransform: 'capitalize',
         color: '#333',
+    },
+    navButton: {
+        padding: 5,
+    },
+    downloadContainer: {
+        alignItems: 'flex-end',
+        marginVertical: 10,
     },
     downloadButton: {
         padding: 5,
@@ -349,13 +426,13 @@ const styles = StyleSheet.create({
         fontStyle: 'italic',
     },
     table: {
-        flex: 1, // Adicionando flex: 1 para a View da tabela
+        flex: 1,
         borderWidth: 1,
         borderColor: '#ddd',
         borderRadius: 8,
         overflow: 'hidden',
     },
-    list: { // Novo estilo para o FlatList
+    list: {
         flex: 1,
     },
     tableRowHeader: {
@@ -393,17 +470,13 @@ const styles = StyleSheet.create({
     manualCell: {
         backgroundColor: '#E0E0E0',
     },
-    overnightCellText: {
+    earlyMorningText: {
         fontWeight: 'bold',
-        color: '#007AFF',
+        color: '#007AFF', // Cor azul
     },
     editedCellText: {
         fontWeight: 'bold',
         color: 'red',
-    },
-    justificationCellText: {
-        fontWeight: 'bold',
-        color: 'purple',
     },
     centeredView: {
         flex: 1,

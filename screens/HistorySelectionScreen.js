@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AdBannerPlaceholder from '../components/AdBannerPlaceholder'; // Importa o novo componente
 
 export default function HistorySelectionScreen() {
     const navigation = useNavigation();
@@ -26,6 +27,8 @@ export default function HistorySelectionScreen() {
                     <Text style={styles.buttonText}>Registros</Text>
                 </TouchableOpacity>
             </View>
+            {/* Espaço para Anúncio AdMob (Placeholder) */}
+            <AdBannerPlaceholder />
         </SafeAreaView>
     );
 }

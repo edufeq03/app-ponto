@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AdBannerPlaceholder from '../components/AdBannerPlaceholder'; // Importa o novo componente
 
 export default function RegisterSelectionScreen({ navigation }) {
     return (
@@ -23,6 +24,8 @@ export default function RegisterSelectionScreen({ navigation }) {
                     <Text style={styles.buttonText}>Ponto por Foto</Text>
                 </TouchableOpacity>
             </View>
+            {/* Espaço para Anúncio AdMob (Placeholder) */}
+            <AdBannerPlaceholder />
         </SafeAreaView>
     );
 }

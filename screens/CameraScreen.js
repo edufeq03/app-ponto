@@ -6,6 +6,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useFocusEffect } from '@react-navigation/native';
 import { auth } from '../config/firebase_config';
 import { findDocumentBoundingBox, analyzeImage, extractDataFromText, checkIfDuplicate, uploadImage, sendToFirestore, getUserProfileName, saveUserProfileName } from '../services/cameraService.js';
+import AdBannerPlaceholder from '../components/AdBannerPlaceholder'; // Importa o novo componente
 
 const { width: windowWidth, height: windowHeight } = Dimensions.get('window');
 const RECEIPT_ASPECT_RATIO = 5.5 / 4;
@@ -326,6 +327,8 @@ export default function CameraScreen({ navigation }) {
           </View>
         </Modal>
       )}
+      {/* Espaço para Anúncio AdMob (Placeholder) */}
+      <AdBannerPlaceholder />
     </SafeAreaView>
   );
 }

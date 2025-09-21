@@ -169,7 +169,7 @@ const TimeBankScreen = () => {
             {/* Texto Explicativo */}
             <Text style={styles.infoText}>
                 Para o cálculo correto do saldo, é essencial que os dias de trabalho tenham 4 marcações.
-                Dias com menos marcações não serão considerados no balanço.
+                Os dias com menos marcações não serão considerados no balanço.
             </Text>
 
             {/* Opções de Navegação */}

@@ -77,7 +77,7 @@ function BankStackScreen() {
 function SettingsStackScreen() {
   return (
     <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
-      <SettingsStack.Screen name="Configurações" component={SettingsScreen} />
+      <SettingsStack.Screen name="Configurações Iniciais" component={SettingsScreen} />
     </SettingsStack.Navigator>
   );
 }

@@ -1,22 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../config/firebase_config';
-import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import AdBannerPlaceholder from '../components/AdBannerPlaceholder'; // Importa o novo componente
+import { Picker } from '@react-native-picker/picker';
+import { AdMobBanner } from 'expo-ads-admob'; // Biblioteca correta para o Expo
 
-const TimeBankScreen = () => {
+// Importe suas funções de cálculo aqui
+// Por exemplo: import { calculateTotalBankHours, getDailyRecordsForMonth } from '../services/timeService';
+
+// ID de teste do AdMob, substitua pelo seu em produção
+const adUnitId = __DEV__ ? 'ca-app-pub-1154181169569490~5358267605' : 'ca-app-pub-1154181169569490/4340204564';
+
+const BankSelectionScreen = () => {
     const navigation = useNavigation();
-    const [loading, setLoading] = useState(true);
-    const [totalHours, setTotalHours] = useState(0);
-    const [monthlyHours, setMonthlyHours] = useState(0);
 
+    const [loading, setLoading] = useState(true);
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    
+    // Estados para os saldos
+    const [monthlyBalance, setMonthlyBalance] = useState(0);
+    const [totalBalance, setTotalBalance] = useState(0);
 
+    // Dados de exemplo para o Picker
     const months = [
         { label: 'Janeiro', value: 1 }, { label: 'Fevereiro', value: 2 },
         { label: 'Março', value: 3 }, { label: 'Abril', value: 4 },
@@ -25,105 +32,41 @@ const TimeBankScreen = () => {
         { label: 'Setembro', value: 9 }, { label: 'Outubro', value: 10 },
         { label: 'Novembro', value: 11 }, { label: 'Dezembro', value: 12 }
     ];
-    const years = [2024, 2025, 2026];
 
-    const formatDuration = (minutes) => {
-        const sign = minutes >= 0 ? '+' : '-';
-        const absoluteMinutes = Math.abs(minutes);
-        const hours = Math.floor(absoluteMinutes / 60);
-        const mins = absoluteMinutes % 60;
-        return `${sign}${hours}h ${mins}m`;
-    };
+    const years = [2024, 2025, 2026]; // Defina seus anos aqui
 
-    const calculateDailyHours = (dailyPoints) => {
-        if (dailyPoints.length < 4) {
-            return { balance: 0, worked: 0, required: 0 };
-        }
+    // Função que será responsável por buscar e calcular os dados
+    const fetchData = async () => {
+        setLoading(true);
+        // Exemplo de como você faria o cálculo. Você precisará implementar essas funções.
+        // const monthlyData = await getDailyRecordsForMonth(selectedMonth, selectedYear);
+        // const totalData = await getAllRecordsSinceLastSettlement();
 
-        const sortedPoints = dailyPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
-        let totalWorkedMinutes = 0;
+        // const calculatedMonthlyBalance = calculateTotalBankHours(monthlyData, ...);
+        // const calculatedTotalBalance = calculateTotalBankHours(totalData, ...);
 
-        for (let i = 0; i < sortedPoints.length; i += 2) {
-            if (sortedPoints[i + 1]) {
-                const start = new Date(sortedPoints[i].timestamp_ponto);
-                const end = new Date(sortedPoints[i + 1].timestamp_ponto);
-                const durationInMinutes = (end - start) / (1000 * 60);
-                totalWorkedMinutes += durationInMinutes;
-            }
-        }
-        
-        const standardWorkdayMinutes = 8 * 60;
-        const balance = totalWorkedMinutes - standardWorkdayMinutes;
-
-        return {
-            balance,
-            worked: totalWorkedMinutes,
-            required: standardWorkdayMinutes
-        };
-    };
-
-    const processPointsForBank = (pointsList) => {
-        const grouped = {};
-        pointsList.forEach(point => {
-            const date = point.workday_date;
-            if (!grouped[date]) {
-                grouped[date] = [];
-            }
-            grouped[date].push(point);
-        });
-
-        const dailySummary = Object.keys(grouped).map(date => {
-            const dailyStats = calculateDailyHours(grouped[date]);
-            return {
-                date,
-                ...dailyStats
-            };
-        });
-
-        const accumulatedBalance = dailySummary.reduce((sum, day) => sum + day.balance, 0);
-        return accumulatedBalance;
+        // setMonthlyBalance(calculatedMonthlyBalance);
+        // setTotalBalance(calculatedTotalBalance);
+        setLoading(false);
     };
 
     useEffect(() => {
-        const q = query(
-            collection(db, 'pontos'),
-            orderBy('workday_date', 'asc'),
-            orderBy('timestamp_ponto', 'asc')
-        );
-
-        const unsubscribe = onSnapshot(
-            q,
-            (querySnapshot) => {
-                const pointsData = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                }));
-
-                const totalBalance = processPointsForBank(pointsData);
-                setTotalHours(totalBalance);
-
-                const filteredByMonth = pointsData.filter(point => {
-                    const pointDate = new Date(point.workday_date.split('-').join('/'));
-                    return pointDate.getMonth() + 1 === selectedMonth && pointDate.getFullYear() === selectedYear;
-                });
-                const monthlyBalance = processPointsForBank(filteredByMonth);
-                setMonthlyHours(monthlyBalance);
-
-                setLoading(false);
-            },
-            (error) => {
-                console.error("Erro ao carregar pontos: ", error);
-                setLoading(false);
-            }
-        );
-
-        return () => unsubscribe();
+        fetchData();
     }, [selectedMonth, selectedYear]);
+
+    // Função auxiliar para formatar minutos em HHh MMm
+    const formatMinutesToHours = (minutes) => {
+        const sign = minutes >= 0 ? '' : '-';
+        const absMinutes = Math.abs(minutes);
+        const hours = Math.floor(absMinutes / 60);
+        const mins = absMinutes % 60;
+        return `${sign}${hours}h ${mins}m`;
+    };
 
     if (loading) {
         return (
             <SafeAreaView style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#0000ff" />
+                <ActivityIndicator size="large" color="#007AFF" />
             </SafeAreaView>
         );
     }
@@ -154,14 +97,14 @@ const TimeBankScreen = () => {
             <View style={styles.balanceContainer}>
                 <View style={styles.balanceBox}>
                     <Text style={styles.balanceLabel}>Saldo do Mês</Text>
-                    <Text style={[styles.balanceValue, monthlyHours >= 0 ? styles.positiveText : styles.negativeText]}>
-                        {formatDuration(monthlyHours)}
+                    <Text style={[styles.balanceValue, monthlyBalance >= 0 ? styles.positiveText : styles.negativeText]}>
+                        {formatMinutesToHours(monthlyBalance)}
                     </Text>
                 </View>
                 <View style={styles.balanceBox}>
                     <Text style={styles.balanceLabel}>Saldo Total</Text>
-                    <Text style={[styles.balanceValue, totalHours >= 0 ? styles.positiveText : styles.negativeText]}>
-                        {formatDuration(totalHours)}
+                    <Text style={[styles.balanceValue, totalBalance >= 0 ? styles.positiveText : styles.negativeText]}>
+                        {formatMinutesToHours(totalBalance)}
                     </Text>
                 </View>
             </View>
@@ -183,15 +126,24 @@ const TimeBankScreen = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={styles.button}
-                    onPress={() => { /* Lógica para navegar para a tela de registro de saques */ }}
+                    onPress={() => {
+                        // Lógica para navegar para a tela de registro de saques
+                    }}
                 >
                     <Ionicons name="log-out-outline" size={50} color="#4CAF50" />
                     <Text style={styles.buttonText}>Registrar Saque</Text>
                 </TouchableOpacity>
             </View>
 
-            {/* Espaço para Anúncio AdMob (Placeholder) */}
-            <AdBannerPlaceholder />
+            {/* Espaço para Anúncio AdMob */}
+            <View style={styles.adContainer}>
+                <AdMobBanner
+                    bannerSize="fullBanner"
+                    adUnitID={adUnitId}
+                    onDidFailToReceiveAdWithError={(e) => console.log('Ad failed to load:', e)}
+                    onAdViewDidReceiveAd={() => console.log('Ad loaded successfully')}
+                />
+            </View>
         </SafeAreaView>
     );
 };
@@ -288,6 +240,11 @@ const styles = StyleSheet.create({
         color: '#555',
         textAlign: 'center',
     },
+    adContainer: {
+        marginTop: 'auto',
+        alignSelf: 'center',
+        height: 50, // Altura padrão do banner
+    },
 });
 
-export default TimeBankScreen;
+export default BankSelectionScreen;

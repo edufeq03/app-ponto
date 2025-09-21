@@ -19,6 +19,8 @@ import HistoryScreen from './screens/HistoryScreen';
 import SummaryScreen from './screens/SummaryScreen';
 import LoginScreen from './screens/LoginScreen';
 import SignUpScreen from './screens/SignUpScreen';
+import TimeBankScreen from './screens/TimeBankScreen';
+import SettingsScreen from './screens/SettingsScreen';
 
 // Dados para conexao Firebase
 import { auth } from './config/firebase_config';
@@ -27,8 +29,9 @@ const Tab = createBottomTabNavigator();
 const AuthStack = createStackNavigator();
 const RegisterStack = createStackNavigator();
 const HistoryStack = createStackNavigator();
+const BankStack = createStackNavigator();
+const SettingsStack = createStackNavigator();
 
-// Navegador para as telas de login e cadastro
 function AuthStackScreen() {
   return (
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
@@ -38,7 +41,6 @@ function AuthStackScreen() {
   );
 }
 
-// Stack para a tela de registro de ponto (Manual ou Câmera)
 function RegisterStackScreen() {
   return (
     <RegisterStack.Navigator screenOptions={{ headerShown: false }}>
@@ -49,7 +51,6 @@ function RegisterStackScreen() {
   );
 }
 
-// Stack para a tela de histórico
 function HistoryStackScreen() {
   return (
     <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
@@ -60,7 +61,27 @@ function HistoryStackScreen() {
   );
 }
 
-// O Navegador de abas principal
+// NOVA STACK: Navegador para as telas do Banco de Horas
+function BankStackScreen() {
+  return (
+    <BankStack.Navigator screenOptions={{ headerShown: false }}>
+      <BankStack.Screen name="Resumo Banco" component={TimeBankScreen} />
+      <BankStack.Screen name="Relatório Detalhado" component={ReportScreen} />
+      {/* Aqui você adicionaria uma tela para Saques: */}
+      {/* <BankStack.Screen name="Lançar Saque" component={WithdrawalScreen} /> */}
+    </BankStack.Navigator>
+  );
+}
+
+// NOVA STACK: Navegador para a tela de Configurações
+function SettingsStackScreen() {
+  return (
+    <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
+      <SettingsStack.Screen name="Configurações" component={SettingsScreen} />
+    </SettingsStack.Navigator>
+  );
+}
+
 function MainAppTabs() {
   return (
     <Tab.Navigator
@@ -76,6 +97,8 @@ function MainAppTabs() {
             iconName = 'history';
           } else if (route.name === 'Banco de Horas') {
             iconName = 'bar-chart';
+          } else if (route.name === 'Configurações') {
+            iconName = 'settings';
           }
           return <Icon name={iconName} size={size} color={color} />;
         },
@@ -100,7 +123,8 @@ function MainAppTabs() {
       />
       <Tab.Screen name="Registrar" component={RegisterStackScreen} />
       <Tab.Screen name="Histórico" component={HistoryStackScreen} />
-      <Tab.Screen name="Banco de Horas" component={ReportScreen} />
+      <Tab.Screen name="Banco de Horas" component={BankStackScreen} />
+      <Tab.Screen name="Configurações" component={SettingsStackScreen} />
     </Tab.Navigator>
   );
 }
@@ -109,7 +133,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Use o useFonts para carregar a fonte
   const [fontsLoaded] = useFonts({
     'MaterialIcons': require('@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialIcons.ttf'),
   });

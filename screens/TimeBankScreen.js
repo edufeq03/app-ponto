@@ -1,21 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '../config/firebase_config';
+import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore'; // Importa 'where'
+import { db, auth } from '../config/firebase_config'; // Importa 'auth'
 import { Picker } from '@react-native-picker/picker';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native'; // Importa useFocusEffect
 import { Ionicons } from '@expo/vector-icons';
-import AdBannerPlaceholder from '../components/AdBannerPlaceholder'; // Importa o novo componente
+import AdBannerPlaceholder from '../components/AdBannerPlaceholder';
+import { loadUserSettings } from '../services/settingsService';
 
 const TimeBankScreen = () => {
     const navigation = useNavigation();
     const [loading, setLoading] = useState(true);
     const [totalHours, setTotalHours] = useState(0);
     const [monthlyHours, setMonthlyHours] = useState(0);
+    const [userSettings, setUserSettings] = useState(null); 
 
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [pointsData, setPointsData] = useState([]); // Adicionado estado para os pontos crus
 
     const months = [
         { label: 'Janeiro', value: 1 }, { label: 'Fevereiro', value: 2 },
@@ -25,7 +28,8 @@ const TimeBankScreen = () => {
         { label: 'Setembro', value: 9 }, { label: 'Outubro', value: 10 },
         { label: 'Novembro', value: 11 }, { label: 'Dezembro', value: 12 }
     ];
-    const years = [2024, 2025, 2026];
+    const currentYear = new Date().getFullYear();
+    const years = [currentYear - 1, currentYear, currentYear + 1]; // Adicionado anos dinâmicos
 
     const formatDuration = (minutes) => {
         const sign = minutes >= 0 ? '+' : '-';
@@ -35,34 +39,39 @@ const TimeBankScreen = () => {
         return `${sign}${hours}h ${mins}m`;
     };
 
+    // FUNÇÃO DE CÁLCULO ATUALIZADA (Dedução de 1 hora de almoço)
     const calculateDailyHours = (dailyPoints) => {
-        if (dailyPoints.length < 4) {
+        if (dailyPoints.length < 2 || !userSettings) {
             return { balance: 0, worked: 0, required: 0 };
         }
-
-        const sortedPoints = dailyPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
-        let totalWorkedMinutes = 0;
-
-        for (let i = 0; i < sortedPoints.length; i += 2) {
-            if (sortedPoints[i + 1]) {
-                const start = new Date(sortedPoints[i].timestamp_ponto);
-                const end = new Date(sortedPoints[i + 1].timestamp_ponto);
-                const durationInMinutes = (end - start) / (1000 * 60);
-                totalWorkedMinutes += durationInMinutes;
-            }
-        }
         
-        const standardWorkdayMinutes = 8 * 60;
-        const balance = totalWorkedMinutes - standardWorkdayMinutes;
+        const standardWorkdayMinutes = userSettings.dailyStandardHours * 60;
+        
+        const sortedPoints = dailyPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
+        
+        const pontoEntrada = new Date(sortedPoints[0].timestamp_ponto);
+        const pontoSaida = new Date(sortedPoints[sortedPoints.length - 1].timestamp_ponto);
+        
+        let totalWorkedMinutesGross = (pontoSaida.getTime() - pontoEntrada.getTime()) / (1000 * 60);
+
+        if (totalWorkedMinutesGross < 0) totalWorkedMinutesGross = 0;
+        
+        const lunchBreakMinutes = 60; 
+        
+        const effectiveWorkedMinutes = totalWorkedMinutesGross - lunchBreakMinutes; 
+
+        const balance = effectiveWorkedMinutes - standardWorkdayMinutes;
 
         return {
             balance,
-            worked: totalWorkedMinutes,
+            worked: effectiveWorkedMinutes, 
             required: standardWorkdayMinutes
         };
     };
 
     const processPointsForBank = (pointsList) => {
+        if (!userSettings) return 0;
+
         const grouped = {};
         pointsList.forEach(point => {
             const date = point.workday_date;
@@ -73,7 +82,7 @@ const TimeBankScreen = () => {
         });
 
         const dailySummary = Object.keys(grouped).map(date => {
-            const dailyStats = calculateDailyHours(grouped[date]);
+            const dailyStats = calculateDailyHours(grouped[date]); 
             return {
                 date,
                 ...dailyStats
@@ -84,50 +93,100 @@ const TimeBankScreen = () => {
         return accumulatedBalance;
     };
 
+    // NOVO useEffect para carregar as configurações do usuário primeiro
     useEffect(() => {
-        const q = query(
-            collection(db, 'pontos'),
-            orderBy('workday_date', 'asc'),
-            orderBy('timestamp_ponto', 'asc')
-        );
+        const fetchSettings = async () => {
+            const settings = await loadUserSettings();
+            setUserSettings(settings);
+            // O loading será setado para false apenas após a primeira busca de pontos.
+        };
+        fetchSettings();
+    }, []);
 
-        const unsubscribe = onSnapshot(
-            q,
-            (querySnapshot) => {
-                const pointsData = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                }));
 
-                const totalBalance = processPointsForBank(pointsData);
-                setTotalHours(totalBalance);
+    // >>>>> CORREÇÃO APLICADA AQUI: useFocusEffect para recarregar no foco da tela <<<<<
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!userSettings) return;
 
-                const filteredByMonth = pointsData.filter(point => {
-                    const pointDate = new Date(point.workday_date.split('-').join('/'));
-                    return pointDate.getMonth() + 1 === selectedMonth && pointDate.getFullYear() === selectedYear;
-                });
-                const monthlyBalance = processPointsForBank(filteredByMonth);
-                setMonthlyHours(monthlyBalance);
-
+            const user = auth.currentUser;
+            if (!user) {
+                Alert.alert("Erro", "Usuário não autenticado.");
                 setLoading(false);
-            },
-            (error) => {
-                console.error("Erro ao carregar pontos: ", error);
-                setLoading(false);
+                return;
             }
-        );
 
-        return () => unsubscribe();
-    }, [selectedMonth, selectedYear]);
+            // Garante que o usuário logado está sendo usado na query
+            const q = query(
+                collection(db, 'pontos'),
+                where('usuario_id', '==', user.uid), // Adicionado filtro por usuário
+                orderBy('workday_date', 'asc'),
+                orderBy('timestamp_ponto', 'asc')
+            );
 
-    if (loading) {
+            // onSnapshot é a forma correta de receber atualizações em tempo real
+            const unsubscribe = onSnapshot(
+                q,
+                (querySnapshot) => {
+                    const latestPointsData = querySnapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                    }));
+                    setPointsData(latestPointsData); // Salva os dados crus
+                    setLoading(false); // Só termina o loading após buscar os dados
+
+                    // Processa o saldo total imediatamente
+                    const totalBalance = processPointsForBank(latestPointsData);
+                    setTotalHours(totalBalance);
+
+                    // Re-calcula o saldo do mês/ano selecionado
+                    const filteredByMonth = latestPointsData.filter(point => {
+                        const pointDateParts = point.workday_date.split('/').map(p => parseInt(p, 10)); 
+                        return pointDateParts[1] === selectedMonth && pointDateParts[2] === selectedYear;
+                    });
+                    
+                    const monthlyBalance = processPointsForBank(filteredByMonth);
+                    setMonthlyHours(monthlyBalance);
+                },
+                (error) => {
+                    console.error("Erro ao carregar pontos: ", error);
+                    setLoading(false);
+                }
+            );
+
+            // Função de cleanup que é chamada ao desfocar a tela
+            return () => unsubscribe();
+        }, [userSettings]) // Roda quando settings é carregado pela primeira vez
+    ); 
+
+    // Efeito para recalcular o saldo do mês quando o seletor mudar
+    useEffect(() => {
+        if (!userSettings || pointsData.length === 0) {
+            setMonthlyHours(0);
+            return;
+        }
+
+        const filteredByMonth = pointsData.filter(point => {
+            const pointDateParts = point.workday_date.split('/').map(p => parseInt(p, 10)); 
+            return pointDateParts[1] === selectedMonth && pointDateParts[2] === selectedYear;
+        });
+        
+        const monthlyBalance = processPointsForBank(filteredByMonth);
+        setMonthlyHours(monthlyBalance);
+
+    }, [selectedMonth, selectedYear, pointsData, userSettings]); // Dependência de pointsData
+
+    // Altera o loading para considerar também o carregamento das configurações
+    if (loading || !userSettings) {
         return (
             <SafeAreaView style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#0000ff" />
+                <ActivityIndicator size="large" color="#4a148c" />
+                <Text style={{ marginTop: 10, color: '#4a148c' }}>Carregando dados e configurações...</Text>
             </SafeAreaView>
         );
     }
 
+    // ... (O restante do componente, incluindo o return, permanece inalterado)
     return (
         <SafeAreaView style={styles.container}>
             <Text style={styles.title}>Banco de Horas</Text>
@@ -166,10 +225,9 @@ const TimeBankScreen = () => {
                 </View>
             </View>
 
-            {/* Texto Explicativo */}
+            {/* Texto Explicativo (ATUALIZADO) */}
             <Text style={styles.infoText}>
-                Para o cálculo correto do saldo, é essencial que os dias de trabalho tenham 4 marcações.
-                Os dias com menos marcações não serão considerados no balanço.
+                O cálculo do saldo se baseia na Jornada Padrão de **{userSettings.dailyStandardHours} horas** e considera apenas a 1ª Entrada e a última Saída, deduzindo 1 hora de almoço.
             </Text>
 
             {/* Opções de Navegação */}

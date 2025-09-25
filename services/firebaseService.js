@@ -30,7 +30,9 @@ export const savePointData = async (photoUri, pointData) => {
     const [hours, minutes] = pointData.time.split(':').map(Number);
     const pointDateTime = new Date(year, month - 1, day, hours, minutes);
     let workdayDate = new Date(pointDateTime);
-    if (hours >= 0 && hours < 6) {
+    
+    // MUDANÇA AQUI: Lógica de ponto noturno alterada de 6h para 5h.
+    if (hours >= 0 && hours < 5) { // Se for entre 00:00 e 04:59
       workdayDate.setDate(workdayDate.getDate() - 1);
     }
 

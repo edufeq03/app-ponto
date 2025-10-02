@@ -14,8 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.edufeq03.pontoapporganizer",
-      "googleMobileAdsAppId": "ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"
+      "bundleIdentifier": "com.edufeq03.pontoapporganizer"
     },
     "android": {
       "adaptiveIcon": {
@@ -23,8 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.edufeq03.pontoapporganizer",
-      "googleMobileAdsAppId": "ca-app-pub-1154181169569490~5358267605"
+      "package": "com.edufeq03.pontoapporganizer"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1,234 +1,82 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, FlatList, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+// src/screens/ReportScreen.js
+import React from 'react';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, query, onSnapshot, orderBy, where } from 'firebase/firestore';
-import { db, auth } from '../config/firebase_config';
-import { Picker } from '@react-native-picker/picker';
-import { loadUserSettings } from '../services/settingsService';
-import { useFocusEffect } from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { generateAndSharePdf } from '../services/pdfService'; 
 import AdBannerPlaceholder from '../components/AdBannerPlaceholder';
 
-// Novo utilitário para formatar a hora a partir do timestamp ISO
+// NOVO utilitário para formatar a hora a partir do timestamp ISO
 const formatTime = (isoString) => {
     if (!isoString) return '';
-    // Converte o timestamp ISO (ou Firebase Timestamp) para um objeto Date
     const date = new Date(isoString); 
-    // Retorna a hora e minuto formatados (ex: 08:00)
     return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
+// NOVO utilitário para formatar a duração (horas e minutos)
+const formatDuration = (minutes) => {
+    const sign = minutes >= 0 ? '+' : '-';
+    const absoluteMinutes = Math.abs(minutes);
+    const hours = Math.floor(absoluteMinutes / 60);
+    const mins = absoluteMinutes % 60;
+    return `${sign}${hours}h ${mins}m`;
+};
+
 const ReportScreen = () => {
-    const [points, setPoints] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [userSettings, setUserSettings] = useState(null);
-    const [dailySummary, setDailySummary] = useState([]);
+    const route = useRoute();
+    // MUDANÇA AQUI: Recebe os dados e o período via navegação
+    const { dailySummary, selectedMonth, selectedYear } = route.params;
 
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    // Calcula o saldo total do período recebido
+    const totalBalance = dailySummary.reduce((sum, day) => sum + day.balance, 0);
 
-    // Configurações do Picker
-    const months = [
-        { label: 'Janeiro', value: 1 }, { label: 'Fevereiro', value: 2 },
-        { label: 'Março', value: 3 }, { label: 'Abril', value: 4 },
-        { label: 'Maio', value: 5 }, { label: 'Junho', value: 6 },
-        { label: 'Julho', value: 7 }, { label: 'Agosto', value: 8 },
-        { label: 'Setembro', value: 9 }, { label: 'Outubro', value: 10 },
-        { label: 'Novembro', value: 11 }, { label: 'Dezembro', value: 12 }
-    ];
-    const currentYear = new Date().getFullYear();
-    const years = [currentYear - 1, currentYear, currentYear + 1];
-
-    // FUNÇÃO DE CÁLCULO DE SALDO DIÁRIO
-    const calculateDailyHours = (dailyPoints) => {
-        if (dailyPoints.length < 2 || !userSettings) {
-            return { balance: 0, worked: 0, required: 0, totalTimeGross: 0 };
-        }
-        
-        const standardWorkdayMinutes = userSettings.dailyStandardHours * 60; // Horas salvas * 60
-        
-        const sortedPoints = dailyPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
-        
-        const pontoEntrada = new Date(sortedPoints[0].timestamp_ponto);
-        const pontoSaida = new Date(sortedPoints[sortedPoints.length - 1].timestamp_ponto);
-        
-        let totalTimeGross = (pontoSaida.getTime() - pontoEntrada.getTime()) / (1000 * 60);
-
-        if (totalTimeGross < 0) totalTimeGross = 0;
-        
-        // DEDUÇÃO FIXA DA HORA DE ALMOÇO (1 hora = 60 minutos)
-        const lunchBreakMinutes = 60; 
-        
-        const effectiveWorkedMinutes = totalTimeGross - lunchBreakMinutes; 
-        
-        const balance = effectiveWorkedMinutes - standardWorkdayMinutes;
-
-        return {
-            balance,
-            worked: effectiveWorkedMinutes, 
-            required: standardWorkdayMinutes,
-            totalTimeGross,
-        };
-    };
-
-    // Função para formatar minutos para "+Xh Ym" ou "-Xh Ym"
-    const formatDuration = (minutes) => {
-        const sign = minutes >= 0 ? '+' : '-';
-        const absoluteMinutes = Math.abs(minutes);
-        const hours = Math.floor(absoluteMinutes / 60);
-        const mins = absoluteMinutes % 60;
-        return `${sign}${hours}h ${mins}m`;
-    };
-
-    // Função principal para processar os pontos
-    const processPoints = (pointsList) => {
-        if (!userSettings) return [];
-
-        const grouped = {};
-        pointsList.forEach(point => {
-            const date = point.workday_date; 
-            if (!grouped[date]) {
-                grouped[date] = [];
-            }
-            grouped[date].push(point);
-        });
-
-        const summary = Object.keys(grouped).map(date => {
-            const dailyStats = calculateDailyHours(grouped[date]);
-            
-            const dateParts = date.split('/').map(Number); 
-            const sortableDate = `${dateParts[2]}-${String(dateParts[1]).padStart(2, '0')}-${String(dateParts[0]).padStart(2, '0')}`;
-
-            return {
-                date,
-                sortableDate,
-                points: grouped[date], 
-                ...dailyStats
-            };
-        });
-
-        summary.sort((a, b) => b.sortableDate.localeCompare(a.sortableDate));
-
-        return summary;
-    };
-
-    // Efeito para carregar as configurações
-    useEffect(() => {
-        const fetchSettings = async () => {
-            const settings = await loadUserSettings();
-            setUserSettings(settings);
-        };
-        fetchSettings();
-    }, []);
-
-    // Efeito para carregar os pontos
-    useFocusEffect(
-        React.useCallback(() => {
-            if (!userSettings) return;
-
-            const user = auth.currentUser;
-            if (!user) {
-                Alert.alert("Erro", "Usuário não autenticado.");
-                setLoading(false);
-                return;
-            }
-            
-            const q = query(
-                collection(db, 'pontos'),
-                where('usuario_id', '==', user.uid),
-                orderBy('workday_date', 'desc'),
-                orderBy('timestamp_ponto', 'desc')
-            );
-
-            const unsubscribe = onSnapshot(
-                q,
-                (querySnapshot) => {
-                    const pointsData = querySnapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data(),
-                    }));
-                    setPoints(pointsData);
-                    setLoading(false);
-                },
-                (error) => {
-                    console.error("Erro ao carregar pontos: ", error);
-                    setLoading(false);
-                }
-            );
-
-            return () => unsubscribe();
-        }, [userSettings])
-    );
-
-    // Efeito para filtrar e processar os dados
-    useEffect(() => {
-        if (!userSettings || points.length === 0) {
-            setDailySummary([]);
-            return;
-        }
-
-        const filteredByMonth = points.filter(point => {
-            const pointDateParts = point.workday_date.split('/').map(p => parseInt(p, 10));
-            return pointDateParts[1] === selectedMonth && pointDateParts[2] === selectedYear;
-        });
-        
-        const summary = processPoints(filteredByMonth);
-        setDailySummary(summary);
-    }, [points, selectedMonth, selectedYear, userSettings]);
-
-
-    if (loading || !userSettings) {
-        return (
-            <SafeAreaView style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#4a148c" />
-                <Text style={{ marginTop: 10, color: '#4a148c' }}>Carregando dados e configurações...</Text>
-            </SafeAreaView>
+    const handleSharePDF = async () => {
+        // Esta função agora chama o generateAndSharePdf MOCKADO no pdfService.js
+        const isPdfShared = await generateAndSharePdf(
+            dailySummary, 
+            new Date(selectedYear, selectedMonth - 1, 1), 
+            new Date(selectedYear, selectedMonth, 0),
+            totalBalance
         );
-    }
+        if (isPdfShared) {
+            // Em vez de 'PDF gerado e compartilhado...', o alerta virá do pdfService.js, 
+            // mas manteremos o log de sucesso aqui para garantir.
+            // alert('A função PDF foi chamada. Verifique o alerta temporário.');
+        }
+    };
 
-    // Componente de Item da Lista
+    // Renderiza cada item da lista (cada dia do relatório)
     const renderItem = ({ item }) => {
-        const balanceStyle = item.balance >= 0 ? styles.balancePositive : styles.balanceNegative;
+        const sortedPoints = item.rawPoints.sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto));
+        const ponto1 = sortedPoints[0] ? formatTime(sortedPoints[0].timestamp_ponto) : '-';
+        const ponto2 = sortedPoints[1] ? formatTime(sortedPoints[1].timestamp_ponto) : '-';
+        const ponto3 = sortedPoints[2] ? formatTime(sortedPoints[2].timestamp_ponto) : '-';
+        const ponto4 = sortedPoints[3] ? formatTime(sortedPoints[3].timestamp_ponto) : '-';
         
-        // CORREÇÃO APLICADA AQUI: Mapeia usando o timestamp_ponto e a função formatTime
-        const pointsDetail = item.points
-            .sort((a, b) => new Date(a.timestamp_ponto) - new Date(b.timestamp_ponto))
-            .map(p => formatTime(p.timestamp_ponto))
-            .join(' | ');
-
-        // Tempo Bruto formatado
-        const grossMinutes = item.totalTimeGross;
-        const grossHours = Math.floor(grossMinutes / 60);
-        const grossMins = grossMinutes % 60;
-        const grossTime = `${grossHours}h ${grossMins}m`;
-
-        // Tempo Efetivo trabalhado formatado
-        const workedMinutes = item.worked;
-        const workedHours = Math.floor(workedMinutes / 60);
-        const workedMins = workedMinutes % 60;
-        const workedTime = `${workedHours}h ${workedMins}m`;
-
+        // A cor do saldo depende se é positivo, negativo ou neutro
+        const balanceStyle = item.balance > 0 ? styles.balancePositive : (item.balance < 0 ? styles.balanceNegative : styles.balanceNeutral);
+        const isCalculated = item.rawPoints.length >= 4; // Verifica se o dia é elegível para cálculo
 
         return (
             <View style={styles.itemContainer}>
                 <View style={styles.dateAndBalance}>
                     <Text style={styles.itemDate}>{item.date}</Text>
-                    <Text style={[styles.itemBalance, balanceStyle]}>{formatDuration(item.balance)}</Text>
+                    <Text style={[styles.itemBalance, balanceStyle]}>
+                        {isCalculated ? formatDuration(item.balance) : 'Não calculado'}
+                    </Text>
                 </View>
+                {/* Linha dos pontos para o relatório */}
                 <View style={styles.detailsContainer}>
                     <Text style={styles.detailText}>
-                        <Text style={styles.label}>Pontos:</Text> {pointsDetail}
+                        <Text style={styles.label}>Entrada/Saída: </Text>{ponto1} | {ponto2} | {ponto3} | {ponto4}
                     </Text>
                     <Text style={styles.detailText}>
-                        <Text style={styles.label}>Jornada Bruta:</Text> {grossTime} (Deduzido 1h Almoço)
+                        <Text style={styles.label}>Duração Efetiva: </Text>{isCalculated ? formatDuration(item.worked) : '-'}
                     </Text>
                     <Text style={styles.detailText}>
-                        <Text style={styles.label}>Trab. Efetivo:</Text> {workedTime} (Req. {userSettings.dailyStandardHours}h)
+                        <Text style={styles.label}>Jornada Padrão: </Text>{formatDuration(item.required)}
                     </Text>
-                    {item.points.length < 2 && (
-                        <Text style={styles.warningText}>
-                            Atenção: Apenas {item.points.length} ponto(s) registrado(s). Saldo zerado.
-                        </Text>
-                    )}
                 </View>
             </View>
         );
@@ -237,39 +85,21 @@ const ReportScreen = () => {
     return (
         <SafeAreaView style={styles.container}>
             <Text style={styles.title}>Relatório Detalhado</Text>
-            
-            {/* Seletor de Período */}
-            <View style={styles.pickerContainer}>
-                <Picker
-                    selectedValue={selectedMonth}
-                    onValueChange={(itemValue) => setSelectedMonth(itemValue)}
-                    style={styles.picker}
-                >
-                    {months.map(m => <Picker.Item key={m.value} label={m.label} value={m.value} />)}
-                </Picker>
-                <Picker
-                    selectedValue={selectedYear}
-                    onValueChange={(itemValue) => setSelectedYear(itemValue)}
-                    style={styles.picker}
-                >
-                    {years.map(y => <Picker.Item key={y} label={y.toString()} value={y} />)}
-                </Picker>
-            </View>
-
             <Text style={styles.infoText}>
-                Jornada Padrão: {userSettings.dailyStandardHours} horas. (1ª Entrada e Última Saída - 1h Almoço)
+                Saldo de {months[selectedMonth - 1].label} de {selectedYear}: <Text style={[styles.infoTotalBalance, totalBalance >= 0 ? styles.balancePositive : styles.balanceNegative]}>{formatDuration(totalBalance)}</Text>
             </Text>
+
+            {/* Botão de exportar PDF */}
+            <TouchableOpacity style={styles.pdfButton} onPress={handleSharePDF}>
+                <Ionicons name="share-social-outline" size={24} color="#FFF" />
+                <Text style={styles.pdfButtonText}>Exportar PDF (Temporariamente Desabilitado)</Text>
+            </TouchableOpacity>
 
             <FlatList
                 data={dailySummary}
-                keyExtractor={(item) => item.date}
                 renderItem={renderItem}
-                ListEmptyComponent={() => (
-                    <Text style={styles.emptyListText}>
-                        Nenhum registro de ponto encontrado para {months.find(m => m.value === selectedMonth).label}/{selectedYear}.
-                    </Text>
-                )}
-                contentContainerStyle={styles.listContent}
+                keyExtractor={item => item.date}
+                contentContainerStyle={{ paddingBottom: 20 }}
             />
             
             <AdBannerPlaceholder />
@@ -277,19 +107,12 @@ const ReportScreen = () => {
     );
 };
 
+// Estilos
 const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
         padding: 10,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    listContent: {
-        paddingBottom: 20,
     },
     title: {
         fontSize: 24,
@@ -298,32 +121,38 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         color: '#333',
     },
-    pickerContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        marginBottom: 15,
-        backgroundColor: '#fff',
-        borderRadius: 8,
-        paddingHorizontal: 5,
-        elevation: 1,
-    },
-    picker: {
-        height: 50,
-        width: '45%',
-    },
     infoText: {
         textAlign: 'center',
         color: '#666',
         marginBottom: 10,
-        fontSize: 14,
+        fontSize: 16,
         paddingHorizontal: 10,
+    },
+    infoTotalBalance: {
+        fontWeight: 'bold',
+    },
+    pdfButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#4a148c',
+        padding: 12,
+        borderRadius: 8,
+        marginHorizontal: 10,
+        marginBottom: 15,
+    },
+    pdfButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 8,
     },
     itemContainer: {
         backgroundColor: '#fff',
         borderRadius: 10,
         padding: 15,
         marginBottom: 10,
+        marginHorizontal: 10,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -354,6 +183,9 @@ const styles = StyleSheet.create({
     balanceNegative: {
         color: '#F44336', // Vermelho
     },
+    balanceNeutral: {
+        color: '#555', // Cinza
+    },
     detailsContainer: {
         paddingTop: 5,
     },
@@ -364,19 +196,17 @@ const styles = StyleSheet.create({
     },
     label: {
         fontWeight: 'bold',
-    },
-    warningText: {
-        fontSize: 13,
-        color: '#FF9800', // Laranja de aviso
-        marginTop: 5,
-        fontStyle: 'italic',
-    },
-    emptyListText: {
-        textAlign: 'center',
-        marginTop: 50,
-        fontSize: 16,
-        color: '#888',
+        color: '#333',
     },
 });
+
+const months = [
+    { label: 'Janeiro', value: 1 }, { label: 'Fevereiro', value: 2 },
+    { label: 'Março', value: 3 }, { label: 'Abril', value: 4 },
+    { label: 'Maio', value: 5 }, { label: 'Junho', value: 6 },
+    { label: 'Julho', value: 7 }, { label: 'Agosto', value: 8 },
+    { label: 'Setembro', value: 9 }, { label: 'Outubro', value: 10 },
+    { label: 'Novembro', value: 11 }, { label: 'Dezembro', value: 12 }
+];
 
 export default ReportScreen;

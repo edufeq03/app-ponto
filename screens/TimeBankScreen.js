@@ -1,10 +1,11 @@
+// src/screens/TimeBankScreen.js
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore'; // Importa 'where'
-import { db, auth } from '../config/firebase_config'; // Importa 'auth'
+import { collection, query, orderBy, onSnapshot, where } from 'firebase/firestore'; 
+import { db, auth } from '../config/firebase_config'; 
 import { Picker } from '@react-native-picker/picker';
-import { useNavigation, useFocusEffect } from '@react-navigation/native'; // Importa useFocusEffect
+import { useNavigation, useFocusEffect } from '@react-navigation/native'; 
 import { Ionicons } from '@expo/vector-icons';
 import AdBannerPlaceholder from '../components/AdBannerPlaceholder';
 import { loadUserSettings } from '../services/settingsService';
@@ -15,10 +16,11 @@ const TimeBankScreen = () => {
     const [totalHours, setTotalHours] = useState(0);
     const [monthlyHours, setMonthlyHours] = useState(0);
     const [userSettings, setUserSettings] = useState(null); 
+    const [dailySummary, setDailySummary] = useState([]); // NOVO ESTADO para o relatório detalhado
 
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [pointsData, setPointsData] = useState([]); // Adicionado estado para os pontos crus
+    const [pointsData, setPointsData] = useState([]); 
 
     const months = [
         { label: 'Janeiro', value: 1 }, { label: 'Fevereiro', value: 2 },
@@ -29,7 +31,7 @@ const TimeBankScreen = () => {
         { label: 'Novembro', value: 11 }, { label: 'Dezembro', value: 12 }
     ];
     const currentYear = new Date().getFullYear();
-    const years = [currentYear - 1, currentYear, currentYear + 1]; // Adicionado anos dinâmicos
+    const years = [currentYear - 1, currentYear, currentYear + 1]; 
 
     const formatDuration = (minutes) => {
         const sign = minutes >= 0 ? '+' : '-';
@@ -39,10 +41,16 @@ const TimeBankScreen = () => {
         return `${sign}${hours}h ${mins}m`;
     };
 
-    // FUNÇÃO DE CÁLCULO ATUALIZADA (Dedução de 1 hora de almoço)
+    // FUNÇÃO DE CÁLCULO ATUALIZADA
     const calculateDailyHours = (dailyPoints) => {
-        if (dailyPoints.length < 2 || !userSettings) {
-            return { balance: 0, worked: 0, required: 0 };
+        // MUDANÇA AQUI: Regra do Banco de Horas: Saldo só é calculado se houver 4 ou mais marcações.
+        if (dailyPoints.length < 4 || !userSettings) {
+            return { 
+                balance: 0, 
+                worked: 0, 
+                required: userSettings ? userSettings.dailyStandardHours * 60 : 0,
+                rawPoints: dailyPoints // Inclui os pontos brutos
+            };
         }
         
         const standardWorkdayMinutes = userSettings.dailyStandardHours * 60;
@@ -56,6 +64,8 @@ const TimeBankScreen = () => {
 
         if (totalWorkedMinutesGross < 0) totalWorkedMinutesGross = 0;
         
+        // Regra atual: Dedução fixa de 1 hora (60 minutos) de almoço,
+        // pois a jornada está completa (4 pontos garantidos).
         const lunchBreakMinutes = 60; 
         
         const effectiveWorkedMinutes = totalWorkedMinutesGross - lunchBreakMinutes; 
@@ -65,12 +75,14 @@ const TimeBankScreen = () => {
         return {
             balance,
             worked: effectiveWorkedMinutes, 
-            required: standardWorkdayMinutes
+            required: standardWorkdayMinutes,
+            rawPoints: dailyPoints // Inclui os pontos brutos
         };
     };
 
+    // FUNÇÃO QUE PROCESSA E RETORNA O SALDO TOTAL E O RESUMO DIÁRIO
     const processPointsForBank = (pointsList) => {
-        if (!userSettings) return 0;
+        if (!userSettings) return { totalBalance: 0, dailySummary: [] }; // MUDANÇA: Retorna objeto
 
         const grouped = {};
         pointsList.forEach(point => {
@@ -89,8 +101,10 @@ const TimeBankScreen = () => {
             };
         });
 
+        // O acumulado soma o 'balance' apenas dos dias que cumpriram a regra de 4 pontos (pois 'balance' será 0 nos outros dias).
         const accumulatedBalance = dailySummary.reduce((sum, day) => sum + day.balance, 0);
-        return accumulatedBalance;
+        
+        return { totalBalance: accumulatedBalance, dailySummary }; // MUDANÇA: Retorna o objeto completo
     };
 
     // NOVO useEffect para carregar as configurações do usuário primeiro
@@ -104,7 +118,7 @@ const TimeBankScreen = () => {
     }, []);
 
 
-    // >>>>> CORREÇÃO APLICADA AQUI: useFocusEffect para recarregar no foco da tela <<<<<
+    // >>>>> useFocusEffect para recarregar no foco da tela <<<<<
     useFocusEffect(
         React.useCallback(() => {
             if (!userSettings) return;
@@ -116,15 +130,13 @@ const TimeBankScreen = () => {
                 return;
             }
 
-            // Garante que o usuário logado está sendo usado na query
             const q = query(
                 collection(db, 'pontos'),
-                where('usuario_id', '==', user.uid), // Adicionado filtro por usuário
+                where('usuario_id', '==', user.uid), 
                 orderBy('workday_date', 'asc'),
                 orderBy('timestamp_ponto', 'asc')
             );
 
-            // onSnapshot é a forma correta de receber atualizações em tempo real
             const unsubscribe = onSnapshot(
                 q,
                 (querySnapshot) => {
@@ -132,12 +144,14 @@ const TimeBankScreen = () => {
                         id: doc.id,
                         ...doc.data(),
                     }));
-                    setPointsData(latestPointsData); // Salva os dados crus
-                    setLoading(false); // Só termina o loading após buscar os dados
+                    setPointsData(latestPointsData); 
+                    setLoading(false); 
 
-                    // Processa o saldo total imediatamente
-                    const totalBalance = processPointsForBank(latestPointsData);
+                    // Processa o saldo total e o resumo diário
+                    const { totalBalance, dailySummary: fullDailySummary } = processPointsForBank(latestPointsData); // MUDANÇA: Desestrutura e pega o resumo
                     setTotalHours(totalBalance);
+                    // Aqui você pode salvar o resumo diário completo se for necessário em outra tela
+                    // setDailySummary(fullDailySummary); 
 
                     // Re-calcula o saldo do mês/ano selecionado
                     const filteredByMonth = latestPointsData.filter(point => {
@@ -145,8 +159,10 @@ const TimeBankScreen = () => {
                         return pointDateParts[1] === selectedMonth && pointDateParts[2] === selectedYear;
                     });
                     
-                    const monthlyBalance = processPointsForBank(filteredByMonth);
+                    const { totalBalance: monthlyBalance, dailySummary: monthlyDailySummary } = processPointsForBank(filteredByMonth); // MUDANÇA: Desestrutura
                     setMonthlyHours(monthlyBalance);
+                    setDailySummary(monthlyDailySummary); // Salva o resumo DO MÊS SELECIONADO para o PDF
+
                 },
                 (error) => {
                     console.error("Erro ao carregar pontos: ", error);
@@ -154,15 +170,15 @@ const TimeBankScreen = () => {
                 }
             );
 
-            // Função de cleanup que é chamada ao desfocar a tela
             return () => unsubscribe();
-        }, [userSettings]) // Roda quando settings é carregado pela primeira vez
+        }, [userSettings]) 
     ); 
 
     // Efeito para recalcular o saldo do mês quando o seletor mudar
     useEffect(() => {
         if (!userSettings || pointsData.length === 0) {
             setMonthlyHours(0);
+            setDailySummary([]);
             return;
         }
 
@@ -171,12 +187,12 @@ const TimeBankScreen = () => {
             return pointDateParts[1] === selectedMonth && pointDateParts[2] === selectedYear;
         });
         
-        const monthlyBalance = processPointsForBank(filteredByMonth);
+        const { totalBalance: monthlyBalance, dailySummary: monthlyDailySummary } = processPointsForBank(filteredByMonth); // MUDANÇA: Desestrutura
         setMonthlyHours(monthlyBalance);
+        setDailySummary(monthlyDailySummary); // Salva o resumo para o PDF
+    }, [selectedMonth, selectedYear, pointsData, userSettings]); 
 
-    }, [selectedMonth, selectedYear, pointsData, userSettings]); // Dependência de pointsData
 
-    // Altera o loading para considerar também o carregamento das configurações
     if (loading || !userSettings) {
         return (
             <SafeAreaView style={styles.loadingContainer}>
@@ -227,14 +243,19 @@ const TimeBankScreen = () => {
 
             {/* Texto Explicativo (ATUALIZADO) */}
             <Text style={styles.infoText}>
-                O cálculo do saldo se baseia na Jornada Padrão de **{userSettings.dailyStandardHours} horas** e considera apenas a 1ª Entrada e a última Saída, deduzindo 1 hora de almoço.
+                O cálculo do saldo se baseia na Jornada Padrão de **{userSettings.dailyStandardHours} horas** e considera apenas a 1ª Entrada e a última Saída, deduzindo 1 hora de almoço. **O saldo é contabilizado apenas em dias com 4 marcações.**
             </Text>
 
             {/* Opções de Navegação */}
             <View style={styles.buttonContainer}>
                 <TouchableOpacity
                     style={styles.button}
-                    onPress={() => navigation.navigate('Relatório Detalhado')}
+                    // MUDANÇA AQUI: Passa os dados para a tela de relatório
+                    onPress={() => navigation.navigate('Relatório Detalhado', { 
+                        dailySummary: dailySummary,
+                        selectedMonth: selectedMonth,
+                        selectedYear: selectedYear
+                    })}
                 >
                     <Ionicons name="document-text-outline" size={50} color="#007AFF" />
                     <Text style={styles.buttonText}>Relatório Detalhado</Text>
@@ -254,6 +275,7 @@ const TimeBankScreen = () => {
     );
 };
 
+// ... (Restante dos estilos inalterados)
 const styles = StyleSheet.create({
     container: {
         flex: 1,

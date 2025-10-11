@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { generateAndSharePdf } from '../services/pdfService'; 
-import AdBannerPlaceholder from '../components/AdBannerPlaceholder';
+import AdBannerPlaceholder from '../src/components/AdBannerPlaceholder';
 
 // NOVO utilitário para formatar a hora a partir do timestamp ISO
 const formatTime = (isoString) => {

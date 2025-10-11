@@ -7,7 +7,7 @@ import { db, auth } from '../config/firebase_config';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation, useFocusEffect } from '@react-navigation/native'; 
 import { Ionicons } from '@expo/vector-icons';
-import AdBannerPlaceholder from '../components/AdBannerPlaceholder';
+import AdBannerPlaceholder from '../src/components/AdBannerPlaceholder';
 import { loadUserSettings } from '../services/settingsService';
 
 const TimeBankScreen = () => {

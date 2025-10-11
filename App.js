@@ -47,6 +47,8 @@ function RegisterStackScreen() {
       <RegisterStack.Screen name="Opções de Registro" component={RegisterSelectionScreen} />
       <RegisterStack.Screen name="Entrada Manual" component={ManualEntryScreen} />
       <RegisterStack.Screen name="Ponto por Foto" component={CameraScreen} />
+      {/* CORREÇÃO CRÍTICA: Adicionado o SummaryScreen ao RegisterStack com o nome exato da navegação */}
+      <RegisterStack.Screen name="Summary" component={SummaryScreen} /> 
     </RegisterStack.Navigator>
   );
 }
@@ -61,19 +63,15 @@ function HistoryStackScreen() {
   );
 }
 
-// NOVA STACK: Navegador para as telas do Banco de Horas
 function BankStackScreen() {
   return (
     <BankStack.Navigator screenOptions={{ headerShown: false }}>
       <BankStack.Screen name="Resumo Banco" component={TimeBankScreen} />
       <BankStack.Screen name="Relatório Detalhado" component={ReportScreen} />
-      {/* Aqui você adicionaria uma tela para Saques: */}
-      {/* <BankStack.Screen name="Lançar Saque" component={WithdrawalScreen} /> */}
     </BankStack.Navigator>
   );
 }
 
-// NOVA STACK: Navegador para a tela de Configurações
 function SettingsStackScreen() {
   return (
     <SettingsStack.Navigator screenOptions={{ headerShown: false }}>

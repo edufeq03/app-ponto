@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal, Linking, Button } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Image, Modal, Linking, Button, SafeAreaView } from 'react-native';
 import { collection, query, orderBy, onSnapshot, doc, deleteDoc, where, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../config/firebase_config';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons'; // Importação alterada para Ionicons
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDocs } from 'firebase/firestore';
 
@@ -12,6 +11,25 @@ const HistoryScreen = () => {
     const [loading, setLoading] = useState(true);
     const [modalVisible, setModalVisible] = useState(false);
     const [currentImage, setCurrentImage] = useState(null);
+    const [currentMonth, setCurrentMonth] = useState(new Date());
+
+    const formatMonthYear = (date) => {
+      return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    };
+
+    const handlePreviousMonth = () => {
+        setCurrentMonth(prev => {
+            const newDate = new Date(prev.getFullYear(), prev.getMonth() - 1, 1);
+            return newDate;
+        });
+    };
+
+    const handleNextMonth = () => {
+        setCurrentMonth(prev => {
+            const newDate = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+            return newDate;
+        });
+    };
 
     useFocusEffect(
       React.useCallback(() => {
@@ -22,11 +40,24 @@ const HistoryScreen = () => {
           return;
         }
 
+        // Definir o intervalo de tempo para o mês selecionado
+        const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+        const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59);
+
+        // O Firebase compara strings ISO.
+        const startIso = startOfMonth.toISOString();
+        const endIso = endOfMonth.toISOString();
+
+
         const q = query(
           collection(db, 'pontos'),
           where('usuario_id', '==', user.uid),
+          where('timestamp_ponto', '>=', startIso),
+          where('timestamp_ponto', '<=', endIso),
           orderBy('timestamp_ponto', 'desc')
         );
+
+        setLoading(true); // Mostrar loading ao mudar de mês
 
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
           const pointsList = [];
@@ -42,7 +73,7 @@ const HistoryScreen = () => {
         });
 
         return () => unsubscribe();
-      }, [])
+      }, [currentMonth]) // Re-executa o effect quando currentMonth mudar
     );
 
     const handleClearData = async () => {
@@ -107,32 +138,32 @@ const HistoryScreen = () => {
     const formattedDate = pointDateTime.toLocaleDateString('pt-BR');
     const formattedTime = pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+    // LÓGICA DE FALLBACK: Verifica se existe 'image_url' (novo) ou 'url_foto' (antigo)
+    // Isso garante a compatibilidade retroativa.
+    const imageUrl = item.image_url || item.url_foto;
+
     return (
       <View style={styles.itemContainer}>
         <View style={styles.textContainer}>
-          {item.origem === 'foto' && (
-            <Text style={styles.itemText}>
-              <Text style={styles.label}>Nome:</Text> {item.name_from_ocr || 'Não detectado'}
-            </Text>
-          )}
           <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {formattedDate}</Text>
           <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {formattedTime}</Text>
-          {item.origem === 'foto' && item.justificativa_ocr && (
+          {(item.origem === 'foto' && item.justificativa_ocr) && (
             <Text style={styles.itemText}>
               <Text style={styles.label}>Justificativa:</Text> {item.justificativa_ocr}
             </Text>
           )}
-          {item.origem === 'manual' && item.justificativa && (
+          {(item.origem === 'manual' && item.justificativa) && (
             <Text style={styles.itemText}>
               <Text style={styles.label}>Justificativa:</Text> {item.justificativa}
             </Text>
           )}
         </View>
         <View style={styles.actionsContainer}>
-          {item.origem === 'foto' && item.url_foto && (
+          {/* Usa a variável imageUrl com a lógica de fallback */}
+          {item.origem === 'foto' && imageUrl && (
             <TouchableOpacity
               style={styles.imageButton}
-              onPress={() => handleViewImage(item.url_foto)}
+              onPress={() => handleViewImage(imageUrl)}
             >
               <Ionicons name="image" size={24} color="#007AFF" />
             </TouchableOpacity>
@@ -145,6 +176,18 @@ const HistoryScreen = () => {
     );
   };
 
+    const MonthSelector = () => (
+        <View style={styles.monthSelectorContainer}>
+            <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
+                <Ionicons name="chevron-back" size={24} color="#007AFF" />
+            </TouchableOpacity>
+            <Text style={styles.monthText}>{formatMonthYear(currentMonth).toUpperCase()}</Text>
+            <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
+                <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+            </TouchableOpacity>
+        </View>
+    );
+
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
@@ -155,13 +198,16 @@ const HistoryScreen = () => {
     }
 
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <Text style={styles.title}>Histórico de Pontos</Text>
+        
+        <MonthSelector /> 
+
         <FlatList
           data={points}
           renderItem={renderItem}
           keyExtractor={item => item.id}
-          ListEmptyComponent={<Text style={styles.emptyListText}>Nenhum ponto registrado ainda.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyListText}>Nenhum ponto registrado neste mês.</Text>}
           style={styles.list}
         />
         {__DEV__ && (
@@ -199,11 +245,12 @@ const HistoryScreen = () => {
                 </View>
             </View>
         </Modal>
-      </View>
+      </SafeAreaView>
     );
 }
 
 const clearAllPoints = async () => {
+  // ... (função clearAllPoints permanece a mesma)
   console.log("LOG: Iniciando a limpeza de todos os pontos do usuário para desenvolvimento...");
   const user = auth.currentUser;
   if (!user) {
@@ -247,6 +294,29 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+    color: '#333',
+  },
+  monthSelectorContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  monthButton: {
+    padding: 5,
+  },
+  monthText: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#333',
   },
   loadingContainer: {

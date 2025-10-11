@@ -14,24 +14,7 @@ const ValidationModal = ({
             <SafeAreaView style={styles.modalContainer}>
                 <ScrollView>
                     <Text style={styles.modalHeader}>Validar Dados</Text>
-                    <Text style={styles.modalSubtitle}>Revise e corrija os dados extraídos antes de salvar.</Text>
-
-                    <View style={styles.formGroup}>
-                        <Text style={styles.formLabel}>Nome (Nome Completo ou Nome da Empresa/Local)</Text>
-                        <TextInput
-                            style={styles.input}
-                            onChangeText={(text) => onDataChange('name', text)}
-                            value={data.name}
-                        />
-                    </View>
-                    <View style={styles.formGroup}>
-                        <Text style={styles.formLabel}>Código de Autenticação</Text>
-                        <TextInput
-                            style={styles.input}
-                            onChangeText={(text) => onDataChange('authCode', text)}
-                            value={data.authCode}
-                        />
-                    </View>
+                    <Text style={styles.modalSubtitle}>Revise e corrija os dados antes de salvar.</Text>                   
                     <View style={styles.formGroup}>
                         <Text style={styles.formLabel}>Data (DD/MM/AAAA)</Text>
                         <TextInput
@@ -51,7 +34,7 @@ const ValidationModal = ({
                         />
                     </View>
 
-                    <Text style={styles.originalTextLabel}>Texto Original Extraído (Para Consulta):</Text>
+                    <Text style={styles.originalTextLabel}>Texto Original Extraído da Imagem:</Text>
                     <Text style={styles.originalText}>{originalText}</Text>
 
                     <View style={styles.modalFooter}>

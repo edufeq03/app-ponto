@@ -6,12 +6,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDocs } from 'firebase/firestore';
 
+// Importa o serviço de download
+import { downloadAndZipComprovantes, shareFile } from '../services/downloadService'; 
+
+
 const HistoryScreen = () => {
     const [points, setPoints] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalVisible, setModalVisible] = useState(false);
     const [currentImage, setCurrentImage] = useState(null);
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [isDownloading, setIsDownloading] = useState(false); // NOVO ESTADO
 
     const formatMonthYear = (date) => {
       return date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
@@ -31,6 +36,7 @@ const HistoryScreen = () => {
         });
     };
 
+    // LÓGICA DE CARREGAMENTO (Revertida para o uso de strings ISO para compatibilidade)
     useFocusEffect(
       React.useCallback(() => {
         const user = auth.currentUser;
@@ -40,14 +46,13 @@ const HistoryScreen = () => {
           return;
         }
 
-        // Definir o intervalo de tempo para o mês selecionado
+        // 1. Definir o intervalo de tempo para o mês selecionado
         const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
         const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0, 23, 59, 59);
 
-        // O Firebase compara strings ISO.
+        // 2. Usar Strings ISO para o filtro, como no seu código anterior
         const startIso = startOfMonth.toISOString();
         const endIso = endOfMonth.toISOString();
-
 
         const q = query(
           collection(db, 'pontos'),
@@ -57,7 +62,7 @@ const HistoryScreen = () => {
           orderBy('timestamp_ponto', 'desc')
         );
 
-        setLoading(true); // Mostrar loading ao mudar de mês
+        setLoading(true);
 
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
           const pointsList = [];
@@ -73,29 +78,60 @@ const HistoryScreen = () => {
         });
 
         return () => unsubscribe();
-      }, [currentMonth]) // Re-executa o effect quando currentMonth mudar
+      }, [currentMonth]) 
     );
 
+    // NOVO HANDLER PARA DOWNLOAD DOS COMPROVANTES
+    const handleDownloadComprovantes = async () => {
+        setIsDownloading(true);
+        try {
+            // Filtra e mapeia os pontos para o formato esperado pelo downloadService.
+            const pointsForDownload = points
+                .filter(p => p.image_url || p.url_foto) // Filtra pontos que têm URL de comprovante
+                .map(p => ({
+                    id: p.id,
+                    // Usa a URL correta (image_url ou url_foto) e mapeia para 'comprovante_url'
+                    comprovante_url: p.image_url || p.url_foto, 
+                    // O timestamp_ponto é a string ISO, que o service converte em Date para nomear o arquivo
+                    timestamp_ponto: p.timestamp_ponto 
+                }));
+            
+            if (pointsForDownload.length === 0) {
+                Alert.alert("Erro", "Nenhum comprovante com imagem encontrado neste mês para download.");
+                setIsDownloading(false);
+                return;
+            }
+
+            const zipUri = await downloadAndZipComprovantes(pointsForDownload); 
+            
+            if (zipUri) {
+                const mimeType = zipUri.endsWith('.zip') ? 'application/zip' : 'image/jpeg';
+                await shareFile(zipUri, mimeType);
+            }
+        } catch (error) {
+            console.error("Erro no download ou compactação:", error);
+            Alert.alert("Erro", "Falha ao processar o download dos comprovantes.");
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+
+    // Funções originais de limpeza e exclusão (mantidas)
     const handleClearData = async () => {
       Alert.alert(
         "Aviso de Limpeza",
         "Tem certeza que deseja deletar TODOS os pontos de registro? Esta ação é irreversível.",
         [
-          {
-            text: "Cancelar",
-            style: "cancel"
-          },
-          {
-            text: "Deletar Tudo",
-            onPress: async () => {
+          { text: "Cancelar", style: "cancel" },
+          { text: "Deletar Tudo", onPress: async () => {
               const success = await clearAllPoints();
               if (success) {
                 Alert.alert("Sucesso", "Todos os pontos foram deletados.");
               } else {
                 Alert.alert("Erro", "Falha ao deletar os pontos.");
               }
-            },
-            style: "destructive"
+            }, style: "destructive"
           }
         ]
       );
@@ -106,13 +142,8 @@ const HistoryScreen = () => {
           "Confirmar Exclusão",
           "Tem certeza de que deseja excluir este registro de ponto?",
           [
-              {
-                  text: "Cancelar",
-                  style: "cancel"
-              },
-              {
-                  text: "Excluir",
-                  onPress: async () => {
+              { text: "Cancelar", style: "cancel" },
+              { text: "Excluir", onPress: async () => {
                       try {
                           const pointDoc = doc(db, 'pontos', pointId);
                           await deleteDoc(pointDoc);
@@ -121,60 +152,57 @@ const HistoryScreen = () => {
                           console.error("Erro ao excluir o ponto:", error);
                           Alert.alert("Erro", "Não foi possível excluir o ponto. Tente novamente.");
                       }
-                  },
-                  style: "destructive"
+                  }, style: "destructive"
               }
           ]
       );
-  };
+    };
 
-  const handleViewImage = (imageUrl) => {
-    setCurrentImage(imageUrl);
-    setModalVisible(true);
-  };
+    const handleViewImage = (imageUrl) => {
+      setCurrentImage(imageUrl);
+      setModalVisible(true);
+    };
 
-  const renderItem = ({ item }) => {
-    const pointDateTime = new Date(item.timestamp_ponto);
-    const formattedDate = pointDateTime.toLocaleDateString('pt-BR');
-    const formattedTime = pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    // Renderização do Item da Lista (mantida)
+    const renderItem = ({ item }) => {
+      const pointDateTime = new Date(item.timestamp_ponto);
+      const formattedDate = pointDateTime.toLocaleDateString('pt-BR');
+      const formattedTime = pointDateTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    // LÓGICA DE FALLBACK: Verifica se existe 'image_url' (novo) ou 'url_foto' (antigo)
-    // Isso garante a compatibilidade retroativa.
-    const imageUrl = item.image_url || item.url_foto;
+      const imageUrl = item.image_url || item.url_foto; // Lógica de fallback para URL da imagem
 
-    return (
-      <View style={styles.itemContainer}>
-        <View style={styles.textContainer}>
-          <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {formattedDate}</Text>
-          <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {formattedTime}</Text>
-          {(item.origem === 'foto' && item.justificativa_ocr) && (
-            <Text style={styles.itemText}>
-              <Text style={styles.label}>Justificativa:</Text> {item.justificativa_ocr}
-            </Text>
-          )}
-          {(item.origem === 'manual' && item.justificativa) && (
-            <Text style={styles.itemText}>
-              <Text style={styles.label}>Justificativa:</Text> {item.justificativa}
-            </Text>
-          )}
-        </View>
-        <View style={styles.actionsContainer}>
-          {/* Usa a variável imageUrl com a lógica de fallback */}
-          {item.origem === 'foto' && imageUrl && (
-            <TouchableOpacity
-              style={styles.imageButton}
-              onPress={() => handleViewImage(imageUrl)}
-            >
-              <Ionicons name="image" size={24} color="#007AFF" />
+      return (
+        <View style={styles.itemContainer}>
+          <View style={styles.textContainer}>
+            <Text style={styles.itemText}><Text style={styles.label}>Data:</Text> {formattedDate}</Text>
+            <Text style={styles.itemText}><Text style={styles.label}>Hora:</Text> {formattedTime}</Text>
+            {(item.origem === 'foto' && item.justificativa_ocr) && (
+              <Text style={styles.itemText}>
+                <Text style={styles.label}>Justificativa:</Text> {item.justificativa_ocr}
+              </Text>
+            )}
+            {(item.origem === 'manual' && item.justificativa) && (
+              <Text style={styles.itemText}>
+                <Text style={styles.label}>Justificativa:</Text> {item.justificativa}
+              </Text>
+            )}
+          </View>
+          <View style={styles.actionsContainer}>
+            {item.origem === 'foto' && imageUrl && (
+              <TouchableOpacity
+                style={styles.imageButton}
+                onPress={() => handleViewImage(imageUrl)}
+              >
+                <Ionicons name="image" size={24} color="#007AFF" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
+              <Ionicons name="trash-outline" size={24} color="red" />
             </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={() => handleDeletePoint(item.id)}>
-            <Ionicons name="trash-outline" size={24} color="red" />
-          </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    );
-  };
+      );
+    };
 
     const MonthSelector = () => (
         <View style={styles.monthSelectorContainer}>
@@ -197,12 +225,35 @@ const HistoryScreen = () => {
       );
     }
 
+    // Conta o número de comprovantes disponíveis para download
+    const numComprovantes = points.filter(p => p.image_url || p.url_foto).length;
+
     return (
       <SafeAreaView style={styles.container}>
         <Text style={styles.title}>Histórico de Pontos</Text>
         
         <MonthSelector /> 
 
+        {/* NOVO: Botão de Download */}
+        <View style={styles.downloadButtonContainer}>
+            <TouchableOpacity 
+                style={[styles.downloadButton, numComprovantes === 0 && styles.downloadButtonDisabled]}
+                onPress={handleDownloadComprovantes}
+                disabled={isDownloading || numComprovantes === 0} 
+            >
+                {isDownloading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                    <>
+                        <Ionicons name="cloud-download-outline" size={20} color="#fff" />
+                        <Text style={styles.downloadButtonText}>
+                            Baixar Comprovantes ({numComprovantes})
+                        </Text>
+                    </>
+                )}
+            </TouchableOpacity>
+        </View>
+        
         <FlatList
           data={points}
           renderItem={renderItem}
@@ -210,6 +261,8 @@ const HistoryScreen = () => {
           ListEmptyComponent={<Text style={styles.emptyListText}>Nenhum ponto registrado neste mês.</Text>}
           style={styles.list}
         />
+        
+        {/* Botão de Limpar Dados (Apenas em DEV) */}
         {__DEV__ && (
           <TouchableOpacity
               style={styles.clearAllButton}
@@ -219,13 +272,13 @@ const HistoryScreen = () => {
               <Text style={styles.clearAllButtonText}>Limpar Todos os Pontos</Text>
           </TouchableOpacity>
         )}
+        
+        {/* Modal de Visualização de Imagem */}
         <Modal
             animationType="slide"
             transparent={true}
             visible={modalVisible}
-            onRequestClose={() => {
-                setModalVisible(!modalVisible);
-            }}
+            onRequestClose={() => { setModalVisible(false); }}
         >
             <View style={styles.modalContainer}>
                 <View style={styles.modalContent}>
@@ -249,8 +302,8 @@ const HistoryScreen = () => {
     );
 }
 
+// Funções de Serviço
 const clearAllPoints = async () => {
-  // ... (função clearAllPoints permanece a mesma)
   console.log("LOG: Iniciando a limpeza de todos os pontos do usuário para desenvolvimento...");
   const user = auth.currentUser;
   if (!user) {
@@ -406,6 +459,31 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       marginLeft: 10,
       fontSize: 16,
+  },
+  // NOVOS ESTILOS PARA O BOTÃO DE DOWNLOAD
+  downloadButtonContainer: {
+    width: '100%',
+    paddingBottom: 20,
+    paddingHorizontal: 10, // Ajustado para ficar dentro do padding principal
+  },
+  downloadButton: {
+    backgroundColor: '#17A2B8', 
+    padding: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+    minHeight: 48, 
+  },
+  downloadButtonDisabled: {
+    backgroundColor: '#ccc', // Cor para o botão desativado
+  },
+  downloadButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
 });
 

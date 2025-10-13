@@ -1,28 +1,22 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { Camera } from 'expo-camera';
+// screens/SplashScreen.js
 
-const SplashScreen = ({ navigation }) => {
-    useEffect(() => {
-        const checkCameraPermission = async () => {
-            const { status } = await Camera.requestCameraPermissionsAsync();
-            if (status === 'granted') {
-                navigation.replace('CameraScreen');
-            } else {
-                // Navega para uma tela de erro ou permanece aqui com uma mensagem
-                // Para este exemplo, vamos navegar para a tela da câmera
-                // e deixar que ela mostre a mensagem de erro
-                navigation.replace('CameraScreen'); 
-            }
-        };
-        checkCameraPermission();
-    }, []);
+import React from 'react';
+import { View, Text, ActivityIndicator, StyleSheet, Image } from 'react-native';
+// Se você tiver uma imagem de logo, use-a aqui. 
+// Ex: import LogoImage from '../assets/logo.png'; 
+
+const SplashScreen = () => {
+    // Você pode usar o componente Image aqui se tiver um logo
+    const AppLogo = () => (
+        // Exemplo: Coloque a sua tag Image aqui, ou use o Text como placeholder
+        <Text style={styles.logoText}>Meu Ponto!</Text>
+    );
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Ponto Certo</Text>
+            <AppLogo />
             <ActivityIndicator size="large" color="#007AFF" style={styles.spinner} />
-            <Text style={styles.subtitle}>Verificando permissões...</Text>
+            <Text style={styles.subtitle}>Carregando aplicação...</Text>
         </View>
     );
 };
@@ -32,12 +26,19 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#fff',
+        backgroundColor: '#fff', // Cor de fundo da sua splash
     },
-    title: {
-        fontSize: 32,
+    logoText: {
+        fontSize: 40,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#007AFF', 
+        marginBottom: 20,
+    },
+    logo: {
+        width: 200, // Ajuste o tamanho do seu logo
+        height: 200,
+        marginBottom: 30,
+        // Adicione resizeMode, se necessário
     },
     subtitle: {
         marginTop: 10,

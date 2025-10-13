@@ -40,7 +40,7 @@ const LoginScreen = ({ navigation }) => {
         <SafeAreaView style={styles.container}>
             <Text style={styles.title}>Meu Ponto!</Text>
             <Text style={styles.subtitle}>
-            Seu aplicativo para registro e controle de horas trabalhadas.
+                Seu aplicativo para registro e controle de horas trabalhadas.
             </Text>
             <TextInput
                 style={styles.input}
@@ -62,8 +62,17 @@ const LoginScreen = ({ navigation }) => {
                 <Text style={styles.buttonText}>Entrar</Text>
             </TouchableOpacity>
 
+            {/* Link para Cadastre-se */}
             <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
                 <Text style={styles.linkText}>Não tem uma conta? Cadastre-se</Text>
+            </TouchableOpacity>
+            
+            {/* Link para Esqueci a Senha (Centralizado) */}
+            <TouchableOpacity
+                onPress={() => navigation.navigate('ForgotPassword')}
+                style={styles.forgotPasswordButton} // Usamos este TouchableOpacity como wrapper
+            >
+                <Text style={styles.forgotPasswordText}>Esqueci minha senha</Text>
             </TouchableOpacity>
         </SafeAreaView>
     );
@@ -95,16 +104,18 @@ const styles = StyleSheet.create({
     buttonContainer: {
         marginTop: 10,
     },
+    // Estilo para o link "Não tem conta? Cadastre-se"
     linkText: {
         marginTop: 20,
         color: '#007AFF',
-        textAlign: 'center',
+        textAlign: 'center', // Este já está centralizado
+        marginBottom: 10, // Adicionei margem para separar do botão abaixo
     },
     subtitle: {
-    fontSize: 16,
-    marginBottom: 30,
-    color: '#666',
-    textAlign: 'center',
+        fontSize: 16,
+        marginBottom: 30,
+        color: '#666',
+        textAlign: 'center',
     },
     button: {
         backgroundColor: '#007AFF',
@@ -117,6 +128,17 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
         fontSize: 16,
+    },
+    // NOVO ESTILO: Garante que o TouchableOpacity ocupe 100% da largura e centraliza o conteúdo
+    forgotPasswordButton: {
+        marginTop: 10,
+        alignItems: 'center', // Centraliza o conteúdo (o Text) horizontalmente
+        width: '100%', // Garante que ele ocupe toda a largura disponível
+    },
+    // NOVO ESTILO: Não precisa de textAlign, pois o alinhamento é feito no container acima
+    forgotPasswordText: {
+        color: '#007AFF',
+        fontSize: 14,
     },
 });
 

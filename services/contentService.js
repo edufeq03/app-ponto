@@ -10,24 +10,26 @@ const getContentDocRef = () => doc(db, 'app_content', 'legal_references');
  * O documento é 'legal_references' na coleção 'app_content'.
  */
 export const loadLegalReferences = async () => {
+    console.log("LOG SERVICES: Tentando carregar referências legais do Firestore...");
     try {
         const docRef = getContentDocRef();
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-            console.log("LOG: Conteúdo legal carregado do Firestore.");
-            return docSnap.data();
+            const data = docSnap.data();
+            console.log("LOG FIREBASE SUCESSO: Dados carregados. Video ID recebido:", data.video_id); // 🚨 LOG AQUI
+            return data;
         } else {
-            console.warn("ALERTA: Documento 'legal_references' não encontrado. Usando valores padrão.");
+            console.warn("ALERTA FIREBASE VAZIO: Documento 'legal_references' não encontrado no Firestore. Usando valores padrão estáticos."); // 🚨 LOG AQUI
             // Valores de fallback estáticos
             return {
-                video_title: "Vídeo Padrão: Tutorial",
-                video_id: "dQw4w9WgXcQ", // Exemplo de ID (Rick Astley - Never Gonna Give You Up)
+                video_title: "Vídeo Padrão: Never Gonna Give You Up (Teste)",
+                video_id: "dQw4w9WgXcQ", // ID de teste do YouTube (Rick Astley - permite incorporação)
                 clt_link: "https://www.google.com/search?q=clt",
             };
         }
     } catch (error) {
-        console.error('ERRO: Falha ao carregar referências legais:', error);
+        console.error('ERRO FIREBASE CONEXÃO/PERMISSÃO: Falha ao carregar referências legais. Detalhe:', error); // 🚨 LOG AQUI
         return null;
     }
 };

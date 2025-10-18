@@ -29,7 +29,7 @@ const VideoPlayerCard = ({ videoId, title }) => {
 
     return (
         <View style={styles.videoContainer}>
-            <Text style={styles.subHeader}>Vídeo: {title}</Text>
+            <Text style={styles.subHeader}>{title}</Text>
             
             {videoLoading && (
                 <View style={styles.loadingOverlay}>

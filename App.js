@@ -21,6 +21,10 @@ import LoginScreen from './screens/LoginScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import TimeBankScreen from './screens/TimeBankScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import LegalReferenceScreen from './screens/LegalReferenceScreen'; 
+
+// 🎯 CAMINHO CORRIGIDO 
+import { SettingsProvider } from './src/context/SettingsContext'; 
 
 // Dados para conexao Firebase
 import { auth } from './config/firebase_config';
@@ -37,7 +41,6 @@ function AuthStackScreen() {
     <AuthStack.Navigator screenOptions={{ headerShown: false }}>
       <AuthStack.Screen name="Login" component={LoginScreen} />
       <AuthStack.Screen name="SignUp" component={SignUpScreen} />
-      
     </AuthStack.Navigator>
   );
 }
@@ -48,7 +51,6 @@ function RegisterStackScreen() {
       <RegisterStack.Screen name="Opções de Registro" component={RegisterSelectionScreen} />
       <RegisterStack.Screen name="Entrada Manual" component={ManualEntryScreen} />
       <RegisterStack.Screen name="Ponto por Foto" component={CameraScreen} />
-      {/* CORREÇÃO CRÍTICA: Adicionado o SummaryScreen ao RegisterStack com o nome exato da navegação */}
       <RegisterStack.Screen name="Summary" component={SummaryScreen} /> 
     </RegisterStack.Navigator>
   );
@@ -77,6 +79,7 @@ function SettingsStackScreen() {
   return (
     <SettingsStack.Navigator screenOptions={{ headerShown: false }}>
       <SettingsStack.Screen name="Configurações Iniciais" component={SettingsScreen} />
+      <SettingsStack.Screen name="Referências Legais" component={LegalReferenceScreen} /> 
     </SettingsStack.Navigator>
   );
 }
@@ -152,9 +155,16 @@ export default function App() {
     );
   }
 
+  // Se o usuário está autenticado, envolve o App Tabs no SettingsProvider
   return (
     <NavigationContainer>
-      {user ? <MainAppTabs /> : <AuthStackScreen />}
+      {user ? (
+        <SettingsProvider> 
+          <MainAppTabs />
+        </SettingsProvider>
+      ) : (
+        <AuthStackScreen />
+      )}
     </NavigationContainer>
   );
 }

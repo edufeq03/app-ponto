@@ -3,12 +3,16 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput,
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { Picker } from '@react-native-picker/picker';
+import { useNavigation } from '@react-navigation/native';
+
+// --- NOVIDADES: Importação do Contexto ---
+import { useSettings } from '../src/context/SettingsContext'; // Importa o hook do contexto
 
 import { loadUserSettings, saveUserSettings } from '../services/settingsService';
+import { DEFAULT_SETTINGS } from '../services/settingsService'; 
 
 // --- Componentes Reutilizáveis ---
 
-// MUDANÇA AQUI: Novo componente de Modal de Informação
 const InfoModal = ({ visible, onClose, title, content }) => (
     <Modal
         animationType="fade"
@@ -38,9 +42,8 @@ const SettingGroup = ({ title, children }) => (
   </View>
 );
 
-// MUDANÇA AQUI: Componente de botão de configuração com ícone de informação
-const SettingButton = ({ title, value, onPress, onInfoPress, isPremium = false }) => (
-  <View style={styles.settingRow}>
+const SettingButton = ({ title, value, onPress, onInfoPress, isPremium = false, style = {} }) => (
+  <View style={[styles.settingRow, style]}>
     <TouchableOpacity onPress={onPress} style={styles.settingButton}>
         <Text style={styles.settingButtonText}>{title}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -56,113 +59,123 @@ const SettingButton = ({ title, value, onPress, onInfoPress, isPremium = false }
   </View>
 );
 
+// --- Componente Principal ---
+
 const SettingsScreen = () => {
-    const [settings, setSettings] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const navigation = useNavigation();
+    
+    // --- NOVO: Puxa settings e a função de update do Contexto ---
+    const { settings: contextSettings, updateSettingsLocally } = useSettings(); 
+
+    // O estado local é inicializado com o valor do contexto (garantidamente carregado)
+    const [settings, setSettings] = useState(contextSettings || DEFAULT_SETTINGS); 
+    const [loading, setLoading] = useState(false); // O loading inicial é tratado pelo Provider
     const [isDatePickerVisible, setDatePickerVisible] = useState(false);
     
-    const [isEditingDailyHours, setIsEditingDailyHours] = useState(false);
+    // Estados para edição de números/horas
+    const [isEditingJornada, setIsEditingJornada] = useState(false);
     const [isEditingCutoffHour, setIsEditingCutoffHour] = useState(false);
+    const [isEditingDuration, setIsEditingDuration] = useState(false); 
+    const [isEditingLimit, setIsEditingLimit] = useState(false); 
     
-    // MUDANÇA AQUI: Estado para o modal de informação
+    // Estados para edição de Horários (HH:MM)
+    const [isEditingEntryTime, setIsEditingEntryTime] = useState(false);
+    const [isEditingExitTime, setIsEditingExitTime] = useState(false);
+    
     const [infoModal, setInfoModal] = useState({ visible: false, title: '', content: '' });
 
     // Simulação do status Premium
     const isPremiumUser = false; 
 
+    // Use o useEffect para garantir que o estado local seja atualizado se o contexto mudar (ex: update em outra tela)
     useEffect(() => {
-        const fetchSettings = async () => {
-            const userSettings = await loadUserSettings();
-            setSettings(userSettings);
-            setLoading(false);
-        };
-        fetchSettings();
-    }, []);
+        if (contextSettings && settings !== contextSettings) {
+            setSettings(contextSettings);
+        }
+    }, [contextSettings]);
+
 
     const handleSaveSetting = async (key, value) => {
         if (!settings) return;
         
-        const finalValue = (key === 'dailyStandardHours' || key === 'nightCutoffHour') 
-                           ? parseInt(value, 10) 
-                           : value;
+        // Converte para Inteiro apenas as chaves que sabemos que são numéricas
+        const numericKeys = [
+            'jornada_diaria_padrao_horas', 
+            'nightCutoffHour', 
+            'duracao_intervalo_minutos', 
+            'limite_banco_horas_diario_minutos'
+        ];
+        let finalValue = value;
+
+        if (numericKeys.includes(key)) {
+            finalValue = parseInt(value, 10);
+            if (isNaN(finalValue) || finalValue < 0) {
+                Alert.alert("Valor Inválido", `O valor para ${key} deve ser um número inteiro positivo.`);
+                return;
+            }
+        }
+        
+        // Verifica o formato da hora (HH:MM)
+        if (key === 'horario_entrada_padrao' || key === 'horario_saida_padrao') {
+            if (!/^\d{2}:\d{2}$/.test(finalValue)) {
+                Alert.alert("Formato Inválido", "O horário deve estar no formato HH:MM (ex: 08:00).");
+                return;
+            }
+        }
 
         const newSettings = { ...settings, [key]: finalValue };
-        setSettings(newSettings);
-        
+
         const success = await saveUserSettings(newSettings);
-        if (!success) {
-             Alert.alert("Erro", "Falha ao salvar a configuração.");
-        }
-    };
-    
-    // --- Handlers de Componentes de Configuração ---
-
-    const handleDateConfirm = (date) => {
-        handleSaveSetting('settlementDate', date.toISOString());
-        setDatePickerVisible(false);
-    };
-
-    const handlePolicyChange = (itemValue) => {
-        handleSaveSetting('settlementPolicy', itemValue);
-    };
-    
-    const handleDailyHoursChange = () => {
-        if (!isEditingDailyHours) {
-            setIsEditingDailyHours(true);
-            return;
-        }
-        const hours = parseInt(settings.dailyStandardHours, 10);
-        if (isNaN(hours) || hours <= 0 || hours > 24) {
-            Alert.alert("Valor Inválido", "A jornada deve ser um número inteiro de 1 a 24.");
-            return;
-        }
-
-        handleSaveSetting('dailyStandardHours', hours);
-        setIsEditingDailyHours(false);
-    };
-    
-    const handleCutoffHourChange = () => {
-        if (!isEditingCutoffHour) {
-            setIsEditingCutoffHour(true);
-            return;
-        }
-        const hour = parseInt(settings.nightCutoffHour, 10);
-        if (isNaN(hour) || hour < 0 || hour > 6) {
-            Alert.alert("Valor Inválido", "O corte noturno deve ser um número inteiro entre 0 e 6.");
-            return;
-        }
         
-        handleSaveSetting('nightCutoffHour', hour);
-        setIsEditingCutoffHour(false);
-    };
-
-    // --- Lógica dos Modais de Informação ---
-    const showInfo = (title, content) => {
-        setInfoModal({ visible: true, title, content });
-    };
-
-    // MUDANÇA AQUI: Conteúdos dos modais
-    const infoContent = {
-        settlementDate: {
-            title: "Data da Última Quitação",
-            content: "Esta é a data usada como referência para calcular o saldo do seu banco de horas. Todo o saldo anterior a esta data é considerado zerado (quitado). Verifique com o RH ou gestão da sua empresa para garantir que a data está correta."
-        },
-        settlementPolicy: {
-            title: "Política de Quitação",
-            content: "Define a frequência com que o saldo do seu banco de horas é zerado. Se Anual, o saldo acumula por um ano. Se Semestral, a cada seis meses. Escolha a regra da sua empresa."
-        },
-        dailyStandardHours: {
-            title: "Jornada Padrão Diária",
-            content: "O número de horas que você deve trabalhar por dia (ex: 8). O sistema usará essa informação para calcular se você tem horas extras ou faltantes no seu banco de horas: (Horas Trabalhadas - Jornada Padrão = Saldo Diário)."
-        },
-        nightCutoffHour: {
-            title: "Horário de Corte Noturno",
-            content: "Define a hora limite (de 0 a 6) para que o ponto seja considerado do dia de trabalho anterior. Ex: Se o corte é 5h, um ponto registrado às 03:00 da manhã é incluído no dia anterior. Use 0 se sua jornada não inclui a madrugada."
+        if (success) {
+            setSettings(newSettings);
+            updateSettingsLocally(newSettings); // <-- CHAVE: ATUALIZA O CONTEXTO GLOBAL
+            Alert.alert("Sucesso", "Configuração salva.");
+        } else {
+            Alert.alert("Erro", "Falha ao salvar a configuração. Tente novamente.");
         }
     };
 
+    const handleJornadaChange = (text) => {
+        setSettings(prev => ({ 
+            ...prev, 
+            jornada_diaria_padrao_horas: text 
+        }));
+    };
+    
+    const handleCutoffHourChange = (text) => {
+        setSettings(prev => ({ 
+            ...prev, 
+            nightCutoffHour: text 
+        }));
+    };
 
-    if (loading || !settings) {
+    const handleIntervalDurationChange = (text) => {
+        setSettings(prev => ({ 
+            ...prev, 
+            duracao_intervalo_minutos: text 
+        }));
+    };
+
+    const handleLimitChange = (text) => {
+        setSettings(prev => ({ 
+            ...prev, 
+            limite_banco_horas_diario_minutos: text 
+        }));
+    };
+
+    const handleNavigateToLegal = () => {
+        navigation.navigate('Referências Legais'); 
+    };
+
+    // --- Lógica de Formatação de Tempo ---
+    const formatTime = (time) => {
+        if (!time || typeof time !== 'string') return '00:00';
+        // Assume format "HH:MM"
+        return time; 
+    }
+
+    if (!settings) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#4a148c" />
@@ -171,13 +184,11 @@ const SettingsScreen = () => {
         );
     }
     
-    const settlementDateFormatted = new Date(settings.settlementDate).toLocaleDateString('pt-BR');
-
-
     return (
         <ScrollView style={styles.container}>
-            <Text style={styles.header}>Configurações</Text>
+            <Text style={styles.header}>Ajustes do Ponto</Text>
 
+            {/* Modal de Informação */}
             <InfoModal 
                 visible={infoModal.visible}
                 onClose={() => setInfoModal({ ...infoModal, visible: false })}
@@ -185,124 +196,213 @@ const SettingsScreen = () => {
                 content={infoModal.content}
             />
 
-            {/* STATUS PREMIUM */}
-            <SettingGroup title="Sua Conta">
-                <Text style={styles.currentStatus}>Plano Atual: {isPremiumUser ? 'Premium' : 'Gratuito'}</Text>
+            {/* Configurações de Jornada */}
+            <SettingGroup title="Jornada e Intervalo">
+                {/* JORNADA PADRÃO */}
+                <View style={styles.settingRow}>
+                    <View style={styles.settingButton}>
+                        <Text style={styles.settingButtonText}>Jornada Diária Padrão (horas)</Text>
+                        {!isEditingJornada ? (
+                            <TouchableOpacity onPress={() => setIsEditingJornada(true)}>
+                                <Text style={styles.settingValue}>{settings.jornada_diaria_padrao_horas}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.inputContainer}>
+                                <TextInput
+                                    style={styles.input}
+                                    onChangeText={handleJornadaChange}
+                                    value={String(settings.jornada_diaria_padrao_horas)}
+                                    keyboardType="numeric"
+                                />
+                                <TouchableOpacity 
+                                    style={styles.saveButton}
+                                    onPress={() => {
+                                        handleSaveSetting('jornada_diaria_padrao_horas', settings.jornada_diaria_padrao_horas);
+                                        setIsEditingJornada(false);
+                                    }}
+                                >
+                                    <Text style={styles.saveButtonText}>Salvar</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                    <TouchableOpacity onPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Jornada Padrão',
+                        content: 'Define o número de horas que você deve trabalhar por dia. Usado para calcular se você fez horas extras ou falta.'
+                    })} style={styles.infoIcon}>
+                        <Ionicons name="information-circle-outline" size={24} color="#666" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* DURAÇÃO DO INTERVALO */}
+                <View style={styles.settingRow}>
+                    <View style={styles.settingButton}>
+                        <Text style={styles.settingButtonText}>Duração Padrão do Intervalo (minutos)</Text>
+                        {!isEditingDuration ? (
+                            <TouchableOpacity onPress={() => setIsEditingDuration(true)}>
+                                <Text style={styles.settingValue}>{settings.duracao_intervalo_minutos}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.inputContainer}>
+                                <TextInput
+                                    style={styles.input}
+                                    onChangeText={handleIntervalDurationChange}
+                                    value={String(settings.duracao_intervalo_minutos)}
+                                    keyboardType="numeric"
+                                />
+                                <TouchableOpacity 
+                                    style={styles.saveButton}
+                                    onPress={() => {
+                                        handleSaveSetting('duracao_intervalo_minutos', settings.duracao_intervalo_minutos);
+                                        setIsEditingDuration(false);
+                                    }}
+                                >
+                                    <Text style={styles.saveButtonText}>Salvar</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                    <TouchableOpacity onPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Intervalo Padrão',
+                        content: 'O tempo que será subtraído do seu total de horas trabalhadas como pausa para almoço/lanche, caso não haja um registro de saída/retorno do intervalo.'
+                    })} style={styles.infoIcon}>
+                        <Ionicons name="information-circle-outline" size={24} color="#666" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* HORÁRIO PADRÃO DE ENTRADA (Picker/Time) */}
+                <SettingButton 
+                    title="Horário Padrão de Entrada" 
+                    value={formatTime(settings.horario_entrada_padrao)} 
+                    onPress={() => Alert.alert("Ajuste Manual", "Ajuste o campo 'horario_entrada_padrao' no Firestore (ex: 08:00).")}
+                    onInfoPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Horário Padrão de Entrada',
+                        content: 'Sugere o horário para o registro de entrada (pode ser usado em cálculos futuros ou sugestões de preenchimento). Atualmente precisa ser ajustado diretamente no Firebase.'
+                    })}
+                />
+
+                {/* HORÁRIO PADRÃO DE SAÍDA (Picker/Time) */}
+                <SettingButton 
+                    title="Horário Padrão de Saída" 
+                    value={formatTime(settings.horario_saida_padrao)} 
+                    onPress={() => Alert.alert("Ajuste Manual", "Ajuste o campo 'horario_saida_padrao' no Firestore (ex: 17:00).")}
+                    onInfoPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Horário Padrão de Saída',
+                        content: 'Sugere o horário para o registro de saída. Atualmente precisa ser ajustado diretamente no Firebase.'
+                    })}
+                />
+            </SettingGroup>
+
+            {/* Configurações de Banco de Horas e Noturno */}
+            <SettingGroup title="Banco de Horas e Adicional">
+                {/* LIMITE DO BANCO DE HORAS */}
+                <View style={styles.settingRow}>
+                    <View style={styles.settingButton}>
+                        <Text style={styles.settingButtonText}>Limite Diário do Banco (minutos)</Text>
+                        {!isEditingLimit ? (
+                            <TouchableOpacity onPress={() => setIsEditingLimit(true)}>
+                                <Text style={styles.settingValue}>{settings.limite_banco_horas_diario_minutos}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.inputContainer}>
+                                <TextInput
+                                    style={styles.input}
+                                    onChangeText={handleLimitChange}
+                                    value={String(settings.limite_banco_horas_diario_minutos)}
+                                    keyboardType="numeric"
+                                />
+                                <TouchableOpacity 
+                                    style={styles.saveButton}
+                                    onPress={() => {
+                                        handleSaveSetting('limite_banco_horas_diario_minutos', settings.limite_banco_horas_diario_minutos);
+                                        setIsEditingLimit(false);
+                                    }}
+                                >
+                                    <Text style={styles.saveButtonText}>Salvar</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                    <TouchableOpacity onPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Limite do Banco',
+                        content: 'Define o limite máximo de horas extras que podem ser acumuladas por dia (em minutos) para o cálculo do Banco de Horas. O excedente será considerado hora extra (se aplicável).'
+                    })} style={styles.infoIcon}>
+                        <Ionicons name="information-circle-outline" size={24} color="#666" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* HORA DE CORTE NOTURNO */}
+                <View style={styles.settingRow}>
+                    <View style={styles.settingButton}>
+                        <Text style={styles.settingButtonText}>Hora de Corte Noturno (0-23h)</Text>
+                        {!isEditingCutoffHour ? (
+                            <TouchableOpacity onPress={() => setIsEditingCutoffHour(true)}>
+                                <Text style={styles.settingValue}>{settings.nightCutoffHour}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.inputContainer}>
+                                <TextInput
+                                    style={styles.input}
+                                    onChangeText={handleCutoffHourChange}
+                                    value={String(settings.nightCutoffHour)}
+                                    keyboardType="numeric"
+                                />
+                                <TouchableOpacity 
+                                    style={styles.saveButton}
+                                    onPress={() => {
+                                        handleSaveSetting('nightCutoffHour', settings.nightCutoffHour);
+                                        setIsEditingCutoffHour(false);
+                                    }}
+                                >
+                                    <Text style={styles.saveButtonText}>Salvar</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                    <TouchableOpacity onPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Hora de Corte Noturno',
+                        content: 'Define a hora (0 a 23) usada para determinar se um ponto de saída é do dia atual ou se pertence ao dia anterior (para quem trabalha até de madrugada). Ex: 5 (5h da manhã).'
+                    })} style={styles.infoIcon}>
+                        <Ionicons name="information-circle-outline" size={24} color="#666" />
+                    </TouchableOpacity>
+                </View>
+            </SettingGroup>
+            
+            {/* --- NOVO GRUPO: Referências Legais --- */}
+            <SettingGroup title="Recursos e Informações">
+                <SettingButton 
+                    title="Referências Legais (CLT, Vídeos)" 
+                    value="Ver Conteúdo" 
+                    onPress={handleNavigateToLegal}
+                    style={{ backgroundColor: '#fff', elevation: 1 }}
+                    onInfoPress={() => setInfoModal({
+                        visible: true,
+                        title: 'Referências Legais',
+                        content: 'Consulte artigos da CLT e conteúdo de advogados parceiros sobre jornada de trabalho, banco de horas e direitos. Inclui conteúdo exclusivo para monetização.'
+                    })}
+                />
+            </SettingGroup>
+
+
+            {/* Configurações Premium (Manter para a simulação) */}
+            <SettingGroup title="Status Premium">
+                <Text style={styles.currentStatus}>
+                    Status Atual: {isPremiumUser ? 'Premium' : 'Básico (Grátis)'}
+                </Text>
                 {!isPremiumUser && (
-                    <TouchableOpacity onPress={() => Alert.alert("Upgrade", "Levar para a tela de planos.")} style={styles.upgradeButton}>
-                        <Text style={styles.upgradeButtonText}>Desbloquear Funcionalidades Premium</Text>
+                    <TouchableOpacity style={styles.upgradeButton}>
+                        <Text style={styles.upgradeButtonText}>Fazer Upgrade para Premium</Text>
                     </TouchableOpacity>
                 )}
             </SettingGroup>
 
-            {/* CONFIGURAÇÕES BÁSICAS DE PONTO */}
-            <SettingGroup title="Controle de Jornada">
-                
-                {/* Data de Quitação */}
-                <SettingButton 
-                    title="Data da Última Quitação"
-                    value={settlementDateFormatted}
-                    onPress={() => setDatePickerVisible(true)}
-                    onInfoPress={() => showInfo(infoContent.settlementDate.title, infoContent.settlementDate.content)}
-                />
-                
-                {/* Política de Quitação (CORREÇÃO AQUI) */}
-                <SettingButton 
-                    title="Política de Quitação"
-                    value={settings.settlementPolicy}
-                    onPress={() => Alert.alert(
-                        "Política de Quitação",
-                        "Selecione a frequência de quitação:",
-                        [
-                            { text: "Anual", onPress: () => handlePolicyChange('Anual') },
-                            { text: "Semestral", onPress: () => handlePolicyChange('Semestral') },
-                            { text: "Cancelar", style: "cancel" },
-                        ]
-                    )}
-                    onInfoPress={() => showInfo(infoContent.settlementPolicy.title, infoContent.settlementPolicy.content)}
-                />
-
-
-                {/* Jornada Padrão Diária */}
-                <View style={[styles.settingRow]}>
-                    <View style={styles.settingButton}>
-                        <Text style={styles.settingButtonText}>Jornada Padrão Diária</Text>
-                        <View style={styles.hoursInputContainer}>
-                            <TextInput
-                                style={styles.hoursInput}
-                                value={String(settings.dailyStandardHours)}
-                                onChangeText={(text) => setSettings({ ...settings, dailyStandardHours: text })}
-                                keyboardType='numeric'
-                                maxLength={2}
-                                editable={isEditingDailyHours}
-                            />
-                            <Text style={styles.settingValue}>h</Text>
-                            <TouchableOpacity style={styles.saveButton} onPress={handleDailyHoursChange}>
-                                <Text style={styles.saveButtonText}>{isEditingDailyHours ? 'Salvar' : 'Editar'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    <TouchableOpacity onPress={() => showInfo(infoContent.dailyStandardHours.title, infoContent.dailyStandardHours.content)} style={styles.infoIcon}>
-                        <Ionicons name="information-circle-outline" size={24} color="#666" />
-                    </TouchableOpacity>
-                </View>
-                
-                {/* Horário de Corte Noturno */}
-                <View style={[styles.settingRow]}>
-                    <View style={styles.settingButton}>
-                        <Text style={styles.settingButtonText}>Horário de Corte Noturno</Text>
-                        <View style={styles.hoursInputContainer}>
-                            <TextInput
-                                style={styles.hoursInput}
-                                value={String(settings.nightCutoffHour)}
-                                onChangeText={(text) => setSettings({ ...settings, nightCutoffHour: text })}
-                                keyboardType='numeric'
-                                maxLength={1}
-                                editable={isEditingCutoffHour}
-                            />
-                            <Text style={styles.settingValue}>h</Text>
-                            <TouchableOpacity style={styles.saveButton} onPress={handleCutoffHourChange}>
-                                <Text style={styles.saveButtonText}>{isEditingCutoffHour ? 'Salvar' : 'Editar'}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                    <TouchableOpacity onPress={() => showInfo(infoContent.nightCutoffHour.title, infoContent.nightCutoffHour.content)} style={styles.infoIcon}>
-                        <Ionicons name="information-circle-outline" size={24} color="#666" />
-                    </TouchableOpacity>
-                </View>
-
-
-            </SettingGroup>
-
-            {/* CONFIGURAÇÕES PREMIUM (GESTÃO) */}
-            <SettingGroup title="Gestão de Equipe (Premium)">
-                
-                <SettingButton 
-                    title="Gerenciar Colaboradores"
-                    value="0 Colaboradores"
-                    onPress={() => Alert.alert('Acesso Premium', 'Recurso disponível apenas para usuários Premium.')}
-                    isPremium={true}
-                />
-
-                <SettingButton 
-                    title="Visualizar Relatórios Consolidados"
-                    value=""
-                    onPress={() => Alert.alert('Acesso Premium', 'Recurso disponível apenas para usuários Premium.')}
-                    isPremium={true}
-                />
-
-            </SettingGroup>
-            
             <View style={{ height: 50 }} />
-
-            <DateTimePickerModal
-                isVisible={isDatePickerVisible}
-                mode="date"
-                onConfirm={handleDateConfirm}
-                onCancel={() => setDatePickerVisible(false)}
-                date={new Date(settings.settlementDate)}
-                locale="pt-BR"
-            />
         </ScrollView>
     );
 };
@@ -318,99 +418,81 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     header: {
-        fontSize: 26,
+        fontSize: 28,
         fontWeight: 'bold',
         color: '#4a148c',
-        padding: 20,
-        paddingBottom: 10,
+        padding: 15,
+        textAlign: 'center',
     },
     groupContainer: {
-        backgroundColor: 'white',
+        backgroundColor: '#fff',
+        padding: 10,
+        marginVertical: 8,
         marginHorizontal: 15,
-        marginTop: 15,
         borderRadius: 10,
-        paddingHorizontal: 15,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
+        shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
-        shadowRadius: 2,
+        shadowRadius: 4,
         elevation: 3,
     },
     groupTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 5,
-        paddingTop: 10,
+        color: '#4a148c',
+        marginBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        paddingBottom: 5,
     },
-    // MUDANÇA AQUI: Novo estilo para a linha de configuração completa
     settingRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        borderTopWidth: 1,
-        borderTopColor: '#f5f5f5',
+        justifyContent: 'space-between',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f0f0f0',
     },
     settingButton: {
-        flex: 1, // Permite que o botão ocupe o máximo de espaço
+        flex: 1,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        paddingVertical: 15,
-        paddingRight: 10, // Espaço para o ícone
     },
     settingButtonText: {
         fontSize: 16,
         color: '#333',
         flexShrink: 1,
+        marginRight: 10,
     },
     settingValue: {
         fontSize: 16,
+        fontWeight: 'bold',
         color: '#6a1b9a',
-        fontWeight: '600',
-        marginRight: 5,
     },
     infoIcon: {
-        padding: 5,
-        marginLeft: 5,
+        paddingLeft: 10,
     },
     premiumTag: {
         fontSize: 10,
-        color: '#FFD700',
-        backgroundColor: '#4a148c',
+        fontWeight: 'bold',
+        color: '#000',
+        backgroundColor: 'gold',
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 4,
-        fontWeight: 'bold',
-        marginLeft: 10,
+        marginLeft: 8,
     },
-    currentStatus: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    upgradeButton: {
-        backgroundColor: '#6a1b9a',
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    upgradeButtonText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    hoursInputContainer: {
+    // Estilos de Input
+    inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
     },
-    hoursInput: {
+    input: {
         borderWidth: 1,
         borderColor: '#ccc',
+        padding: 5,
         borderRadius: 5,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
         width: 40,
         textAlign: 'center',
         marginRight: 5,
@@ -463,17 +545,34 @@ const styles = StyleSheet.create({
         color: '#333',
     },
     modalCloseButton: {
-        backgroundColor: "#6a1b9a",
-        borderRadius: 8,
+        backgroundColor: '#4a148c',
+        borderRadius: 10,
         padding: 10,
         elevation: 2,
-        minWidth: 100,
     },
     modalCloseButtonText: {
-        color: "white",
-        fontWeight: "bold",
-        textAlign: "center"
-    }
+        color: 'white',
+        fontWeight: 'bold',
+        textAlign: 'center',
+    },
+    // Status Premium
+    currentStatus: {
+        fontSize: 16,
+        color: '#666',
+        textAlign: 'center',
+        marginBottom: 10,
+    },
+    upgradeButton: {
+        backgroundColor: 'gold',
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+    },
+    upgradeButtonText: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#000',
+    },
 });
 
 export default SettingsScreen;

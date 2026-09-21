@@ -38,3 +38,9 @@ yarn-error.*
 
 # Adicione esta seção para proteger arquivos com credenciais
 # Arquivos que contêm chaves de API, segredos e configurações sensíveis
+*.sql
+*.sqlite3
+*.db
+seed*
+credentials/
+secrets/
